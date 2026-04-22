@@ -1,14 +1,111 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
-export default function AuthPage({ setIsAuthenticated }) {
+import {
+  createAuthSession,
+  loginRequest,
+  registerRequest,
+  validateLoginForm,
+  validateRegisterForm,
+} from "../lib/auth";
+
+const inputClassName =
+  "w-full rounded-2xl border px-4 py-3 outline-none transition";
+
+function FieldError({ message }) {
+  if (!message) {
+    return null;
+  }
+
+  return <p className="mt-2 text-sm text-red-600">{message}</p>;
+}
+
+export default function AuthPage({ onAuthSuccess }) {
   const [mode, setMode] = useState("login");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [errorMessage, setErrorMessage] = useState("");
+  const [fieldErrors, setFieldErrors] = useState({});
+  const [loginForm, setLoginForm] = useState({
+    email: "",
+    password: "",
+  });
+  const [registerForm, setRegisterForm] = useState({
+    name: "",
+    email: "",
+    password: "",
+    confirmPassword: "",
+  });
   const navigate = useNavigate();
 
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    setIsAuthenticated(true);
+  const loginTitle = useMemo(() => "С возвращением", []);
+  const registerTitle = useMemo(() => "Создание аккаунта", []);
+
+  const resetErrors = () => {
+    setErrorMessage("");
+    setFieldErrors({});
+  };
+
+  const handleLoginChange = (field, value) => {
+    setLoginForm((prev) => ({ ...prev, [field]: value }));
+    setFieldErrors((prev) => ({ ...prev, [field]: "" }));
+    setErrorMessage("");
+  };
+
+  const handleRegisterChange = (field, value) => {
+    setRegisterForm((prev) => ({ ...prev, [field]: value }));
+    setFieldErrors((prev) => ({ ...prev, [field]: "" }));
+    setErrorMessage("");
+  };
+
+  const finishAuth = (payload) => {
+    onAuthSuccess(createAuthSession(payload));
     navigate("/profile");
+  };
+
+  const handleLoginSubmit = async (e) => {
+    e.preventDefault();
+    resetErrors();
+
+    const errors = validateLoginForm(loginForm);
+    if (Object.keys(errors).length > 0) {
+      setFieldErrors(errors);
+      return;
+    }
+
+    setIsSubmitting(true);
+
+    try {
+      const payload = await loginRequest(loginForm);
+      finishAuth(payload);
+    } catch (error) {
+      setErrorMessage(error.message);
+      setFieldErrors(error.errors ?? {});
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleRegisterSubmit = async (e) => {
+    e.preventDefault();
+    resetErrors();
+
+    const errors = validateRegisterForm(registerForm);
+    if (Object.keys(errors).length > 0) {
+      setFieldErrors(errors);
+      return;
+    }
+
+    setIsSubmitting(true);
+
+    try {
+      const payload = await registerRequest(registerForm);
+      finishAuth(payload);
+    } catch (error) {
+      setErrorMessage(error.message);
+      setFieldErrors(error.errors ?? {});
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -48,7 +145,10 @@ export default function AuthPage({ setIsAuthenticated }) {
             <div className="mb-8 flex rounded-2xl bg-slate-100 p-1">
               <button
                 type="button"
-                onClick={() => setMode("login")}
+                onClick={() => {
+                  setMode("login");
+                  resetErrors();
+                }}
                 className={`flex-1 rounded-2xl px-4 py-3 text-sm font-semibold transition ${
                   mode === "login"
                     ? "bg-white text-slate-900 shadow-sm"
@@ -60,7 +160,10 @@ export default function AuthPage({ setIsAuthenticated }) {
 
               <button
                 type="button"
-                onClick={() => setMode("register")}
+                onClick={() => {
+                  setMode("register");
+                  resetErrors();
+                }}
                 className={`flex-1 rounded-2xl px-4 py-3 text-sm font-semibold transition ${
                   mode === "register"
                     ? "bg-white text-slate-900 shadow-sm"
@@ -71,69 +174,79 @@ export default function AuthPage({ setIsAuthenticated }) {
               </button>
             </div>
 
+            {errorMessage ? (
+              <div className="mb-6 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                {errorMessage}
+              </div>
+            ) : null}
+
             {mode === "login" ? (
               <div>
-                <h2 className="text-3xl font-bold tracking-tight">
-                  С возвращением
-                </h2>
+                <h2 className="text-3xl font-bold tracking-tight">{loginTitle}</h2>
                 <p className="mt-2 text-sm text-slate-500">
                   Войдите, чтобы продолжить работу с персональным рационом.
                 </p>
 
-                <form className="mt-8 space-y-5" onSubmit={handleSubmit}>
+                <form className="mt-8 space-y-5" onSubmit={handleLoginSubmit}>
                   <label className="block">
                     <span className="mb-2 block text-sm font-medium">Email</span>
                     <input
                       type="email"
+                      value={loginForm.email}
+                      onChange={(e) => handleLoginChange("email", e.target.value)}
                       placeholder="example@mail.com"
-                      className="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none transition focus:border-slate-400"
+                      className={`${inputClassName} ${
+                        fieldErrors.email
+                          ? "border-red-300 focus:border-red-400"
+                          : "border-slate-200 focus:border-slate-400"
+                      }`}
                     />
+                    <FieldError message={fieldErrors.email} />
                   </label>
 
                   <label className="block">
                     <span className="mb-2 block text-sm font-medium">Пароль</span>
                     <input
                       type="password"
+                      value={loginForm.password}
+                      onChange={(e) => handleLoginChange("password", e.target.value)}
                       placeholder="Введите пароль"
-                      className="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none transition focus:border-slate-400"
+                      className={`${inputClassName} ${
+                        fieldErrors.password
+                          ? "border-red-300 focus:border-red-400"
+                          : "border-slate-200 focus:border-slate-400"
+                      }`}
                     />
+                    <FieldError message={fieldErrors.password} />
                   </label>
 
                   <button
                     type="submit"
-                    className="w-full rounded-2xl bg-slate-900 px-6 py-3 text-sm font-semibold text-white transition hover:opacity-90"
+                    disabled={isSubmitting}
+                    className="w-full rounded-2xl bg-slate-900 px-6 py-3 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
                   >
-                    Войти
+                    {isSubmitting ? "Входим..." : "Войти"}
                   </button>
                 </form>
-
-                <p className="mt-6 text-center text-sm text-slate-500">
-                  Нет аккаунта?{" "}
-                  <button
-                    type="button"
-                    onClick={() => setMode("register")}
-                    className="font-semibold text-slate-900"
-                  >
-                    Зарегистрироваться
-                  </button>
-                </p>
               </div>
             ) : (
               <div>
                 <h2 className="text-3xl font-bold tracking-tight">
-                  Создание аккаунта
+                  {registerTitle}
                 </h2>
                 <p className="mt-2 text-sm text-slate-500">
                   Зарегистрируйтесь, чтобы сохранять предпочтения и планы питания.
                 </p>
 
-                <form className="mt-8 space-y-5" onSubmit={handleSubmit}>
+                <form className="mt-8 space-y-5" onSubmit={handleRegisterSubmit}>
                   <label className="block">
                     <span className="mb-2 block text-sm font-medium">Имя</span>
                     <input
                       type="text"
+                      value={registerForm.name}
+                      onChange={(e) => handleRegisterChange("name", e.target.value)}
                       placeholder="Ваше имя"
-                      className="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none transition focus:border-slate-400"
+                      className={`${inputClassName} border-slate-200 focus:border-slate-400`}
                     />
                   </label>
 
@@ -141,18 +254,32 @@ export default function AuthPage({ setIsAuthenticated }) {
                     <span className="mb-2 block text-sm font-medium">Email</span>
                     <input
                       type="email"
+                      value={registerForm.email}
+                      onChange={(e) => handleRegisterChange("email", e.target.value)}
                       placeholder="example@mail.com"
-                      className="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none transition focus:border-slate-400"
+                      className={`${inputClassName} ${
+                        fieldErrors.email
+                          ? "border-red-300 focus:border-red-400"
+                          : "border-slate-200 focus:border-slate-400"
+                      }`}
                     />
+                    <FieldError message={fieldErrors.email} />
                   </label>
 
                   <label className="block">
                     <span className="mb-2 block text-sm font-medium">Пароль</span>
                     <input
                       type="password"
+                      value={registerForm.password}
+                      onChange={(e) => handleRegisterChange("password", e.target.value)}
                       placeholder="Придумайте пароль"
-                      className="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none transition focus:border-slate-400"
+                      className={`${inputClassName} ${
+                        fieldErrors.password
+                          ? "border-red-300 focus:border-red-400"
+                          : "border-slate-200 focus:border-slate-400"
+                      }`}
                     />
+                    <FieldError message={fieldErrors.password} />
                   </label>
 
                   <label className="block">
@@ -161,29 +288,28 @@ export default function AuthPage({ setIsAuthenticated }) {
                     </span>
                     <input
                       type="password"
+                      value={registerForm.confirmPassword}
+                      onChange={(e) =>
+                        handleRegisterChange("confirmPassword", e.target.value)
+                      }
                       placeholder="Повторите пароль"
-                      className="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none transition focus:border-slate-400"
+                      className={`${inputClassName} ${
+                        fieldErrors.confirmPassword
+                          ? "border-red-300 focus:border-red-400"
+                          : "border-slate-200 focus:border-slate-400"
+                      }`}
                     />
+                    <FieldError message={fieldErrors.confirmPassword} />
                   </label>
 
                   <button
                     type="submit"
-                    className="w-full rounded-2xl bg-slate-900 px-6 py-3 text-sm font-semibold text-white transition hover:opacity-90"
+                    disabled={isSubmitting}
+                    className="w-full rounded-2xl bg-slate-900 px-6 py-3 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
                   >
-                    Зарегистрироваться
+                    {isSubmitting ? "Создаем аккаунт..." : "Зарегистрироваться"}
                   </button>
                 </form>
-
-                <p className="mt-6 text-center text-sm text-slate-500">
-                  Уже есть аккаунт?{" "}
-                  <button
-                    type="button"
-                    onClick={() => setMode("login")}
-                    className="font-semibold text-slate-900"
-                  >
-                    Войти
-                  </button>
-                </p>
               </div>
             )}
           </div>

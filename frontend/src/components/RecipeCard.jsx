@@ -28,7 +28,7 @@ function InfoTile({
         {label}
       </p>
       <p
-        className={`mt-2 text-base font-semibold leading-snug text-slate-900 sm:text-lg [overflow-wrap:normal] [word-break:normal] ${valueClassName}`}
+        className={`mt-2 text-base font-semibold leading-snug text-slate-900 sm:text-lg [overflow-wrap:anywhere] ${valueClassName}`}
       >
         {value}
       </p>
@@ -42,12 +42,26 @@ export default function RecipeCard({
   isFavorite = false,
   onFavoriteToggle,
   secondaryAction,
+  isBusy = false,
 }) {
+  const ingredientPreview =
+    recipe.ingredientsPreview?.length > 0
+      ? recipe.ingredientsPreview.join(", ")
+      : "Список ингредиентов пока не показан";
+
   return (
     <article className="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200 transition-shadow hover:shadow-md">
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0 flex-1">
-          <h2 className="max-w-xl text-2xl font-semibold leading-tight text-slate-950">
+          <div className="flex flex-wrap items-center gap-2">
+            {recipe.predictedRating ? (
+              <span className="inline-flex rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold uppercase tracking-[0.08em] text-emerald-700">
+                ML score {recipe.predictedRating}
+              </span>
+            ) : null}
+          </div>
+
+          <h2 className="mt-3 max-w-xl text-2xl font-semibold leading-tight text-slate-950">
             {recipe.title}
           </h2>
           <p className="mt-3 max-w-2xl text-sm leading-7 text-slate-600">
@@ -59,11 +73,12 @@ export default function RecipeCard({
           <button
             type="button"
             onClick={onFavoriteToggle}
+            disabled={isBusy}
             aria-pressed={isFavorite}
             aria-label={
               isFavorite ? "Убрать из избранного" : "Добавить в избранное"
             }
-            className={`inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border transition ${
+            className={`inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border transition disabled:cursor-not-allowed disabled:opacity-60 ${
               isFavorite
                 ? "border-amber-200 bg-amber-100 text-amber-700 hover:bg-amber-200"
                 : "border-slate-200 bg-white text-slate-400 hover:border-slate-300 hover:text-amber-500"
@@ -85,19 +100,20 @@ export default function RecipeCard({
       <div className="mt-6 flex flex-wrap gap-3">
         <InfoTile
           label="Калории"
-          value={`${recipe.calories} ккал`}
+          value={recipe.calories != null ? `${recipe.calories} ккал` : "Нет данных"}
           className="min-w-[12rem] flex-1"
         />
         <InfoTile
-          label="Кухня"
-          value={recipe.cuisine}
+          label="Время"
+          value={recipe.metaLabel || "Нет данных"}
           compact
           valueClassName="text-[1.02rem] sm:text-[1.15rem]"
         />
         <InfoTile
-          label="Сложность"
-          value={recipe.difficulty}
-          className="min-w-[12rem] flex-1"
+          label="Ингредиенты"
+          value={ingredientPreview}
+          className="min-w-[16rem] flex-[2]"
+          valueClassName="text-sm font-medium leading-6 text-slate-700"
         />
       </div>
     </article>

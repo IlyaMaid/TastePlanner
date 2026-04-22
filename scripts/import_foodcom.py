@@ -4,8 +4,10 @@ import argparse
 import ast
 import json
 import math
+import os
 import re
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Iterable, List, Optional
 
 import pandas as pd
@@ -14,6 +16,12 @@ from sqlalchemy import create_engine, text
 
 INGREDIENT_CLEAN_RE = re.compile(r"[^a-zA-Zа-яА-Я0-9\s\-]+")
 MULTISPACE_RE = re.compile(r"\s+")
+DEFAULT_DATASET_CANDIDATES = [
+    Path("datasets/raw/RAW_recipes.csv"),
+    Path("datasets/raw/recipes.csv"),
+    Path("datasets/RAW_recipes.csv"),
+    Path("datasets/recipes.csv"),
+]
 
 
 @dataclass
@@ -30,7 +38,6 @@ class ParsedRecipe:
     protein: Optional[float]
 
 
-
 def safe_eval(value) -> list:
     if pd.isna(value):
         return []
@@ -43,13 +50,11 @@ def safe_eval(value) -> list:
         return []
 
 
-
 def clean_text(value: str) -> str:
     value = value.strip().lower()
     value = INGREDIENT_CLEAN_RE.sub(" ", value)
     value = MULTISPACE_RE.sub(" ", value)
     return value.strip()
-
 
 
 def canonicalize_ingredient(raw: str) -> str:
@@ -63,7 +68,6 @@ def canonicalize_ingredient(raw: str) -> str:
     return replacements.get(value, value)
 
 
-
 def to_optional_int(value) -> Optional[int]:
     if pd.isna(value):
         return None
@@ -71,7 +75,6 @@ def to_optional_int(value) -> Optional[int]:
         return int(value)
     except (TypeError, ValueError):
         return None
-
 
 
 def to_optional_float(value) -> Optional[float]:
@@ -83,11 +86,7 @@ def to_optional_float(value) -> Optional[float]:
         return None
 
 
-
 def parse_nutrition(values: list) -> dict:
-    # Food.com commonly stores nutrition as:
-    # [calories, total_fat_pdv, sugar_pdv, sodium_pdv, protein_pdv, satfat_pdv, carbs_pdv]
-    # This is not a perfect grams mapping, but is still useful for MVP storage.
     return {
         "calories": to_optional_float(values[0]) if len(values) > 0 else None,
         "fat": to_optional_float(values[1]) if len(values) > 1 else None,
@@ -96,19 +95,24 @@ def parse_nutrition(values: list) -> dict:
     }
 
 
-
 def parse_row(row: pd.Series) -> ParsedRecipe:
     ingredients = safe_eval(row.get("ingredients"))
     steps = safe_eval(row.get("steps"))
     nutrition = parse_nutrition(safe_eval(row.get("nutrition")))
 
-    normalized_ingredients = [canonicalize_ingredient(x) for x in ingredients if clean_text(str(x))]
+    normalized_ingredients = [
+        canonicalize_ingredient(x) for x in ingredients if clean_text(str(x))
+    ]
     normalized_steps = [str(x).strip() for x in steps if str(x).strip()]
 
     return ParsedRecipe(
         source_recipe_id=str(row.get("id")),
         title=str(row.get("name", "")).strip(),
-        description=(str(row.get("description")).strip() if pd.notna(row.get("description")) else None),
+        description=(
+            str(row.get("description")).strip()
+            if pd.notna(row.get("description"))
+            else None
+        ),
         total_minutes=to_optional_int(row.get("minutes")),
         steps=normalized_steps,
         ingredients=normalized_ingredients,
@@ -119,12 +123,10 @@ def parse_row(row: pd.Series) -> ParsedRecipe:
     )
 
 
-
 def export_clean_json(df: pd.DataFrame, output_json: str) -> None:
     parsed = [parse_row(row).__dict__ for _, row in df.iterrows()]
     with open(output_json, "w", encoding="utf-8") as f:
         json.dump(parsed, f, ensure_ascii=False, indent=2)
-
 
 
 def get_or_create_ingredient(conn, canonical_name: str) -> int:
@@ -148,7 +150,6 @@ def get_or_create_ingredient(conn, canonical_name: str) -> int:
     return int(row[0])
 
 
-
 def ensure_alias(conn, ingredient_id: int, alias: str) -> None:
     conn.execute(
         text(
@@ -160,7 +161,6 @@ def ensure_alias(conn, ingredient_id: int, alias: str) -> None:
         ),
         {"ingredient_id": ingredient_id, "alias": alias},
     )
-
 
 
 def insert_recipe(conn, recipe: ParsedRecipe) -> int:
@@ -219,9 +219,15 @@ def insert_recipe(conn, recipe: ParsedRecipe) -> int:
     return int(row[0])
 
 
-
-def replace_recipe_ingredients(conn, recipe_id: int, ingredient_names: Iterable[str]) -> None:
-    conn.execute(text("DELETE FROM recipe_ingredients WHERE recipe_id = :recipe_id"), {"recipe_id": recipe_id})
+def replace_recipe_ingredients(
+    conn,
+    recipe_id: int,
+    ingredient_names: Iterable[str],
+) -> None:
+    conn.execute(
+        text("DELETE FROM recipe_ingredients WHERE recipe_id = :recipe_id"),
+        {"recipe_id": recipe_id},
+    )
     for raw_name in ingredient_names:
         canonical_name = canonicalize_ingredient(raw_name)
         if not canonical_name:
@@ -241,7 +247,6 @@ def replace_recipe_ingredients(conn, recipe_id: int, ingredient_names: Iterable[
                 "raw_text": raw_name,
             },
         )
-
 
 
 def import_foodcom(csv_path: str, db_url: str, limit: Optional[int] = None) -> None:
@@ -264,22 +269,68 @@ def import_foodcom(csv_path: str, db_url: str, limit: Optional[int] = None) -> N
     print(f"Imported {inserted} recipes into PostgreSQL.")
 
 
+def resolve_csv_path(csv_path: Optional[str]) -> Path:
+    if csv_path:
+        path = Path(csv_path)
+        if not path.exists():
+            raise SystemExit(f"CSV file not found: {path}")
+        return path
+
+    for candidate in DEFAULT_DATASET_CANDIDATES:
+        if candidate.exists():
+            return candidate
+
+    raise SystemExit(
+        "Dataset CSV not found. Place RAW_recipes.csv in datasets/raw/ "
+        "or pass an explicit path with --csv."
+    )
+
+
+def resolve_db_url(db_url: Optional[str]) -> str:
+    if db_url:
+        return db_url
+
+    env_db_url = os.getenv("DATABASE_URL")
+    if env_db_url:
+        return env_db_url
+
+    backend_env_path = Path("backend/.env")
+    if backend_env_path.exists():
+        for line in backend_env_path.read_text(encoding="utf-8").splitlines():
+            if line.startswith("DATABASE_URL="):
+                return line.split("=", 1)[1].strip()
+
+    raise SystemExit(
+        "--db-url is required unless DATABASE_URL is available in the environment "
+        "or backend/.env"
+    )
+
 
 def build_arg_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Import Food.com recipes into TastePlanner database")
-    parser.add_argument("--csv", required=True, help="Path to RAW_recipes.csv")
+    parser = argparse.ArgumentParser(
+        description="Import Food.com recipes into TastePlanner database"
+    )
+    parser.add_argument("--csv", help="Path to RAW_recipes.csv")
     parser.add_argument("--db-url", help="SQLAlchemy PostgreSQL URL")
-    parser.add_argument("--limit", type=int, default=None, help="Optional row limit for test imports")
-    parser.add_argument("--output-json", help="Optional path to export cleaned recipes as JSON instead of DB import")
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        help="Optional row limit for test imports",
+    )
+    parser.add_argument(
+        "--output-json",
+        help="Optional path to export cleaned recipes as JSON instead of DB import",
+    )
     return parser
-
 
 
 def main() -> None:
     parser = build_arg_parser()
     args = parser.parse_args()
 
-    df = pd.read_csv(args.csv)
+    csv_path = resolve_csv_path(args.csv)
+    df = pd.read_csv(csv_path)
 
     if args.output_json:
         if args.limit:
@@ -288,10 +339,7 @@ def main() -> None:
         print(f"Saved cleaned JSON to {args.output_json}")
         return
 
-    if not args.db_url:
-        raise SystemExit("--db-url is required unless --output-json is used")
-
-    import_foodcom(args.csv, args.db_url, args.limit)
+    import_foodcom(str(csv_path), resolve_db_url(args.db_url), args.limit)
 
 
 if __name__ == "__main__":

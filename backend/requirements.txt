@@ -3,3 +3,13 @@ uvicorn[standard]
 python-dotenv
 pydantic
 pydantic-settings
+pandas
+scikit-learn
+joblib
+deep-translator
+sqlalchemy
+psycopg2-binary
+passlib[bcrypt]
+python-jose[cryptography]
+python-multipart
+email-validator
