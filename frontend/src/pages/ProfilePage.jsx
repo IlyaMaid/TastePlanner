@@ -1,23 +1,115 @@
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 
-export default function ProfilePage() {
-  const user = {
-    name: "Алина",
-    age: 21,
-    goal: "Поддержание веса",
-    activity: "Умеренный",
-    budget: "Средний",
-    mealsPerDay: 4,
-    cookingLevel: "Средний",
-    allergies: ["Лактоза"],
-    dislikedFoods: ["Грибы", "Острое", "Лук"],
-    favoriteCuisines: ["Итальянская", "Японская", "Средиземноморская"],
+import { fetchMyProfile } from "../lib/profile";
+
+const REGION_LABELS = {
+  "RU-MOW": "Москва",
+  "RU-SPE": "Санкт-Петербург",
+  "RU-MOS": "Московская область",
+  "RU-KDA": "Краснодарский край",
+  "RU-SVE": "Свердловская область",
+  "RU-TA": "Республика Татарстан",
+  "RU-NVS": "Новосибирская область",
+};
+
+function InfoCard({ label, value }) {
+  return (
+    <div className="rounded-2xl bg-slate-50 p-4">
+      <p className="text-sm text-slate-500">{label}</p>
+      <p className="mt-1 font-semibold text-slate-900">{value}</p>
+    </div>
+  );
+}
+
+function formatGoal(goal) {
+  const map = {
+    lose_weight: "Снижение веса",
+    maintain: "Поддержание веса",
+    gain_weight: "Набор массы",
   };
 
+  return map[goal] ?? "Не указана";
+}
+
+function formatActivity(value) {
+  const map = {
+    low: "Низкая",
+    moderate: "Умеренная",
+    high: "Высокая",
+  };
+
+  return map[value] ?? "Не указан";
+}
+
+function formatSex(value) {
+  const map = {
+    male: "Мужской",
+    female: "Женский",
+  };
+
+  return map[value] ?? "Не указан";
+}
+
+function formatRegion(value) {
+  if (!value) {
+    return "Не выбран";
+  }
+
+  return REGION_LABELS[value] ?? value;
+}
+
+export default function ProfilePage({ authSession }) {
+  const [profile, setProfile] = useState(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [errorMessage, setErrorMessage] = useState("");
+
+  useEffect(() => {
+    let isActive = true;
+
+    async function loadProfile() {
+      if (!authSession?.accessToken) {
+        if (isActive) {
+          setIsLoading(false);
+        }
+        return;
+      }
+
+      try {
+        const data = await fetchMyProfile(authSession.accessToken);
+        if (isActive) {
+          setProfile(data);
+          setErrorMessage("");
+        }
+      } catch (error) {
+        if (isActive) {
+          setErrorMessage(error.message);
+        }
+      } finally {
+        if (isActive) {
+          setIsLoading(false);
+        }
+      }
+    }
+
+    loadProfile();
+
+    return () => {
+      isActive = false;
+    };
+  }, [authSession?.accessToken]);
+
+  const email = authSession?.user?.email ?? "Пользователь";
+  const displayName = useMemo(
+    () => authSession?.user?.display_name || email.split("@")[0] || "User",
+    [authSession?.user?.display_name, email],
+  );
+  const initials = displayName.slice(0, 1).toUpperCase();
+
   const stats = [
-    { label: "Составлено рационов", value: 12 },
-    { label: "Любимых блюд", value: 18 },
-    { label: "Дней отслеживания", value: 24 },
+    { label: "Email", value: email },
+    { label: "Цель", value: formatGoal(profile?.goal) },
+    { label: "Активность", value: formatActivity(profile?.activity_level) },
   ];
 
   return (
@@ -32,9 +124,8 @@ export default function ProfilePage() {
               Профиль пользователя
             </h1>
             <p className="mt-3 max-w-2xl text-slate-600">
-              Здесь собрана основная информация о пользователе, его целях,
-              предпочтениях и параметрах, которые используются для персонального
-              подбора рациона.
+              Здесь собрана основная информация о вашем профиле, которая будет
+              использоваться для подбора рациона и персональных рекомендаций.
             </p>
           </div>
 
@@ -54,19 +145,23 @@ export default function ProfilePage() {
           </div>
         </div>
 
+        {errorMessage ? (
+          <div className="mb-6 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            {errorMessage}
+          </div>
+        ) : null}
+
         <div className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
           <section className="space-y-6">
             <div className="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
               <div className="flex items-center gap-4">
                 <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-emerald-100 text-2xl font-bold text-emerald-700">
-                  {user.name[0]}
+                  {initials}
                 </div>
 
                 <div>
-                  <h2 className="text-2xl font-semibold">{user.name}</h2>
-                  <p className="mt-1 text-sm text-slate-500">
-                    Возраст: {user.age} · Цель: {user.goal}
-                  </p>
+                  <h2 className="text-2xl font-semibold">{displayName}</h2>
+                  <p className="mt-1 text-sm text-slate-500">{email}</p>
                 </div>
               </div>
             </div>
@@ -74,92 +169,51 @@ export default function ProfilePage() {
             <div className="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
               <h2 className="text-xl font-semibold">Основные параметры</h2>
 
-              <div className="mt-5 grid gap-4 sm:grid-cols-2">
-                <div className="rounded-2xl bg-slate-50 p-4">
-                  <p className="text-sm text-slate-500">Цель питания</p>
-                  <p className="mt-1 font-semibold">{user.goal}</p>
+              {isLoading ? (
+                <p className="mt-5 text-sm text-slate-500">Загружаем профиль...</p>
+              ) : (
+                <div className="mt-5 grid gap-4 sm:grid-cols-2">
+                  <InfoCard label="Пол" value={formatSex(profile?.sex)} />
+                  <InfoCard
+                    label="Возраст"
+                    value={profile?.age ?? "Не указан"}
+                  />
+                  <InfoCard
+                    label="Рост"
+                    value={
+                      profile?.height_cm ? `${profile.height_cm} см` : "Не указан"
+                    }
+                  />
+                  <InfoCard
+                    label="Вес"
+                    value={
+                      profile?.weight_kg ? `${profile.weight_kg} кг` : "Не указан"
+                    }
+                  />
+                  <InfoCard
+                    label="Цель питания"
+                    value={formatGoal(profile?.goal)}
+                  />
+                  <InfoCard
+                    label="Уровень активности"
+                    value={formatActivity(profile?.activity_level)}
+                  />
+                  <InfoCard
+                    label="Приемов пищи в день"
+                    value={profile?.meals_per_day ?? "Не указано"}
+                  />
+                  <InfoCard
+                    label="Регион"
+                    value={formatRegion(profile?.region_code)}
+                  />
                 </div>
-
-                <div className="rounded-2xl bg-slate-50 p-4">
-                  <p className="text-sm text-slate-500">Уровень активности</p>
-                  <p className="mt-1 font-semibold">{user.activity}</p>
-                </div>
-
-                <div className="rounded-2xl bg-slate-50 p-4">
-                  <p className="text-sm text-slate-500">Бюджет</p>
-                  <p className="mt-1 font-semibold">{user.budget}</p>
-                </div>
-
-                <div className="rounded-2xl bg-slate-50 p-4">
-                  <p className="text-sm text-slate-500">Приёмов пищи в день</p>
-                  <p className="mt-1 font-semibold">{user.mealsPerDay}</p>
-                </div>
-
-                <div className="rounded-2xl bg-slate-50 p-4 sm:col-span-2">
-                  <p className="text-sm text-slate-500">Кулинарные навыки</p>
-                  <p className="mt-1 font-semibold">{user.cookingLevel}</p>
-                </div>
-              </div>
-            </div>
-
-            <div className="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
-              <h2 className="text-xl font-semibold">Предпочтения и ограничения</h2>
-
-              <div className="mt-6 space-y-5">
-                <div>
-                  <p className="mb-3 text-sm font-medium text-slate-500">
-                    Любимые кухни
-                  </p>
-                  <div className="flex flex-wrap gap-3">
-                    {user.favoriteCuisines.map((item) => (
-                      <span
-                        key={item}
-                        className="rounded-full bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-700"
-                      >
-                        {item}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-
-                <div>
-                  <p className="mb-3 text-sm font-medium text-slate-500">
-                    Аллергии / непереносимости
-                  </p>
-                  <div className="flex flex-wrap gap-3">
-                    {user.allergies.map((item) => (
-                      <span
-                        key={item}
-                        className="rounded-full bg-red-50 px-4 py-2 text-sm font-medium text-red-700"
-                      >
-                        {item}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-
-                <div>
-                  <p className="mb-3 text-sm font-medium text-slate-500">
-                    Нелюбимые продукты
-                  </p>
-                  <div className="flex flex-wrap gap-3">
-                    {user.dislikedFoods.map((item) => (
-                      <span
-                        key={item}
-                        className="rounded-full bg-slate-100 px-4 py-2 text-sm font-medium text-slate-700"
-                      >
-                        {item}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              </div>
+              )}
             </div>
           </section>
 
           <aside className="space-y-6">
             <div className="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
-              <h2 className="text-xl font-semibold">Краткая статистика</h2>
+              <h2 className="text-xl font-semibold">Краткая сводка</h2>
 
               <div className="mt-5 space-y-3">
                 {stats.map((stat) => (
@@ -168,7 +222,9 @@ export default function ProfilePage() {
                     className="flex items-center justify-between rounded-2xl bg-slate-50 px-4 py-3"
                   >
                     <span className="text-sm text-slate-600">{stat.label}</span>
-                    <strong>{stat.value}</strong>
+                    <strong className="max-w-[14rem] text-right text-sm text-slate-900">
+                      {stat.value}
+                    </strong>
                   </div>
                 ))}
               </div>
@@ -182,7 +238,7 @@ export default function ProfilePage() {
                   to="/onboarding"
                   className="rounded-2xl bg-white/10 px-4 py-3 text-sm font-medium text-white transition hover:bg-white/20"
                 >
-                  Изменить предпочтения
+                  Изменить анкету
                 </Link>
 
                 <Link
@@ -191,13 +247,6 @@ export default function ProfilePage() {
                 >
                   Посмотреть рацион
                 </Link>
-
-                <button
-                  type="button"
-                  className="rounded-2xl bg-white/10 px-4 py-3 text-left text-sm font-medium text-white transition hover:bg-white/20"
-                >
-                  История прогресса
-                </button>
               </div>
             </div>
           </aside>

@@ -1,14 +1,19 @@
+from uuid import UUID
+from typing import Literal, Optional
+
 from pydantic import BaseModel
-from typing import Optional
 
 
 class ProfileBase(BaseModel):
+    sex: Optional[Literal["male", "female"]] = None
     age: Optional[int] = None
-    height: Optional[int] = None
-    weight: Optional[int] = None
-    gender: Optional[str] = None
-    goal: Optional[str] = None
-    activity_level: Optional[str] = None
+    height_cm: Optional[float] = None
+    weight_kg: Optional[float] = None
+    goal: Optional[Literal["lose_weight", "maintain", "gain_weight"]] = None
+    activity_level: Optional[Literal["low", "moderate", "high"]] = None
+    region_code: Optional[str] = None
+    daily_calorie_target: Optional[float] = None
+    meals_per_day: Optional[int] = None
 
 
 class ProfileUpdate(ProfileBase):
@@ -16,8 +21,6 @@ class ProfileUpdate(ProfileBase):
 
 
 class ProfileResponse(ProfileBase):
-    id: int
-    user_id: int
+    user_id: UUID
 
-    class Config:
-        from_attributes = True
+    model_config = {"from_attributes": True}

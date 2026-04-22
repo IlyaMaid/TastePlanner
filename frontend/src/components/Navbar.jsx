@@ -18,12 +18,12 @@ function LogoIcon() {
   );
 }
 
-export default function Navbar({ isAuthenticated, setIsAuthenticated }) {
+export default function Navbar({ isAuthenticated, onLogout }) {
   const navigate = useNavigate();
   const location = useLocation();
 
   const handleLogout = () => {
-    setIsAuthenticated(false);
+    onLogout();
     navigate("/");
   };
 

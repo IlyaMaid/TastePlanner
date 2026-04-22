@@ -1,16 +1,35 @@
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { useEffect, useState } from "react";
 import Navbar from "./components/Navbar";
 import HomePage from "./pages/HomePage";
 import AuthPage from "./pages/AuthPage";
 import OnboardingPage from "./pages/OnboardingPage";
 import MealPlanPage from "./pages/MealPlanPage";
+import WeeklyMealPlanPage from "./pages/WeeklyMealPlanPage";
 import ShoppingListPage from "./pages/ShoppingListPage";
 import ProfilePage from "./pages/ProfilePage";
 import RecipesPage from "./pages/RecipesPage";
 import FavoritesPage from "./pages/FavoritesPage";
+import {
+  createAuthSession,
+  fetchCurrentUser,
+  refreshSession,
+} from "./lib/auth";
 
-function ProtectedRoute({ isAuthenticated, children }) {
+const AUTH_STORAGE_KEY = "tasteplanner.auth";
+const FAVORITES_STORAGE_KEY = "favorites";
+
+function ProtectedRoute({ isAuthenticated, isAuthReady, children }) {
+  if (!isAuthReady) {
+    return (
+      <div className="mx-auto flex min-h-[60vh] max-w-6xl items-center justify-center px-6">
+        <div className="rounded-2xl bg-white px-6 py-4 text-sm text-slate-500 ring-1 ring-slate-200">
+          Проверяем сессию...
+        </div>
+      </div>
+    );
+  }
+
   if (!isAuthenticated) {
     return <Navigate to="/auth" replace />;
   }
@@ -19,23 +38,100 @@ function ProtectedRoute({ isAuthenticated, children }) {
 }
 
 export default function App() {
-  const [isAuthenticated, setIsAuthenticated] = useState(() => {
-    const savedAuth = localStorage.getItem("isAuthenticated");
-    return savedAuth === "true";
-  });
+  const [authSession, setAuthSession] = useState(() => {
+    const savedAuth = localStorage.getItem(AUTH_STORAGE_KEY);
 
+    if (!savedAuth) {
+      return null;
+    }
+
+    try {
+      return JSON.parse(savedAuth);
+    } catch {
+      return null;
+    }
+  });
+  const [isAuthReady, setIsAuthReady] = useState(false);
   const [favorites, setFavorites] = useState(() => {
-    const savedFavorites = localStorage.getItem("favorites");
+    const savedFavorites = localStorage.getItem(FAVORITES_STORAGE_KEY);
     return savedFavorites ? JSON.parse(savedFavorites) : [];
   });
 
-  useEffect(() => {
-    localStorage.setItem("isAuthenticated", isAuthenticated);
-  }, [isAuthenticated]);
+  const isAuthenticated = Boolean(authSession?.accessToken);
 
   useEffect(() => {
-    localStorage.setItem("favorites", JSON.stringify(favorites));
+    if (authSession) {
+      localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(authSession));
+    } else {
+      localStorage.removeItem(AUTH_STORAGE_KEY);
+    }
+  }, [authSession]);
+
+  useEffect(() => {
+    localStorage.setItem(FAVORITES_STORAGE_KEY, JSON.stringify(favorites));
   }, [favorites]);
+
+  useEffect(() => {
+    let isActive = true;
+
+    async function bootstrapAuth() {
+      if (!authSession?.accessToken) {
+        if (isActive) {
+          setIsAuthReady(true);
+        }
+        return;
+      }
+
+      try {
+        const user = await fetchCurrentUser(authSession.accessToken);
+        if (isActive) {
+          setAuthSession((prev) => (prev ? { ...prev, user } : prev));
+          setIsAuthReady(true);
+        }
+        return;
+      } catch {
+        if (!authSession.refreshToken) {
+          if (isActive) {
+            setAuthSession(null);
+            setIsAuthReady(true);
+          }
+          return;
+        }
+      }
+
+      try {
+        const refreshed = await refreshSession(authSession.refreshToken);
+        const nextSession = createAuthSession(refreshed);
+        const user = await fetchCurrentUser(nextSession.accessToken);
+
+        if (isActive) {
+          setAuthSession({ ...nextSession, user });
+          setIsAuthReady(true);
+        }
+      } catch {
+        if (isActive) {
+          setAuthSession(null);
+          setIsAuthReady(true);
+        }
+      }
+    }
+
+    bootstrapAuth();
+
+    return () => {
+      isActive = false;
+    };
+  }, []);
+
+  const handleAuthSuccess = (session) => {
+    setAuthSession(session);
+    setIsAuthReady(true);
+  };
+
+  const handleLogout = () => {
+    setAuthSession(null);
+    setIsAuthReady(true);
+  };
 
   const toggleFavorite = (recipe) => {
     setFavorites((prev) => {
@@ -52,10 +148,7 @@ export default function App() {
   return (
     <BrowserRouter>
       <div className="min-h-screen bg-slate-50">
-        <Navbar
-          isAuthenticated={isAuthenticated}
-          setIsAuthenticated={setIsAuthenticated}
-        />
+        <Navbar isAuthenticated={isAuthenticated} onLogout={handleLogout} />
 
         <Routes>
           <Route path="/" element={<HomePage />} />
@@ -63,10 +156,10 @@ export default function App() {
           <Route
             path="/auth"
             element={
-              isAuthenticated ? (
+              isAuthenticated && isAuthReady ? (
                 <Navigate to="/profile" replace />
               ) : (
-                <AuthPage setIsAuthenticated={setIsAuthenticated} />
+                <AuthPage onAuthSuccess={handleAuthSuccess} />
               )
             }
           />
@@ -74,8 +167,11 @@ export default function App() {
           <Route
             path="/onboarding"
             element={
-              <ProtectedRoute isAuthenticated={isAuthenticated}>
-                <OnboardingPage />
+              <ProtectedRoute
+                isAuthenticated={isAuthenticated}
+                isAuthReady={isAuthReady}
+              >
+                <OnboardingPage authSession={authSession} />
               </ProtectedRoute>
             }
           />
@@ -83,8 +179,23 @@ export default function App() {
           <Route
             path="/meal-plan"
             element={
-              <ProtectedRoute isAuthenticated={isAuthenticated}>
-                <MealPlanPage />
+              <ProtectedRoute
+                isAuthenticated={isAuthenticated}
+                isAuthReady={isAuthReady}
+              >
+                <MealPlanPage authSession={authSession} />
+              </ProtectedRoute>
+            }
+          />
+
+          <Route
+            path="/meal-plan/week"
+            element={
+              <ProtectedRoute
+                isAuthenticated={isAuthenticated}
+                isAuthReady={isAuthReady}
+              >
+                <WeeklyMealPlanPage authSession={authSession} />
               </ProtectedRoute>
             }
           />
@@ -92,7 +203,10 @@ export default function App() {
           <Route
             path="/shopping-list"
             element={
-              <ProtectedRoute isAuthenticated={isAuthenticated}>
+              <ProtectedRoute
+                isAuthenticated={isAuthenticated}
+                isAuthReady={isAuthReady}
+              >
                 <ShoppingListPage />
               </ProtectedRoute>
             }
@@ -101,8 +215,11 @@ export default function App() {
           <Route
             path="/profile"
             element={
-              <ProtectedRoute isAuthenticated={isAuthenticated}>
-                <ProfilePage />
+              <ProtectedRoute
+                isAuthenticated={isAuthenticated}
+                isAuthReady={isAuthReady}
+              >
+                <ProfilePage authSession={authSession} />
               </ProtectedRoute>
             }
           />
@@ -110,8 +227,12 @@ export default function App() {
           <Route
             path="/recipes"
             element={
-              <ProtectedRoute isAuthenticated={isAuthenticated}>
+              <ProtectedRoute
+                isAuthenticated={isAuthenticated}
+                isAuthReady={isAuthReady}
+              >
                 <RecipesPage
+                  authSession={authSession}
                   favorites={favorites}
                   toggleFavorite={toggleFavorite}
                 />
@@ -122,7 +243,10 @@ export default function App() {
           <Route
             path="/favorites"
             element={
-              <ProtectedRoute isAuthenticated={isAuthenticated}>
+              <ProtectedRoute
+                isAuthenticated={isAuthenticated}
+                isAuthReady={isAuthReady}
+              >
                 <FavoritesPage
                   favorites={favorites}
                   toggleFavorite={toggleFavorite}
