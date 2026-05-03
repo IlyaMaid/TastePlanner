@@ -45,6 +45,7 @@ def list_recipes(
                       AND (
                           LOWER(ri.raw_text) LIKE :search
                           OR LOWER(i.canonical_name) LIKE :search
+                          OR LOWER(COALESCE(i.display_name_ru, '')) LIKE :search
                       )
                 )
             )
@@ -74,8 +75,16 @@ def list_recipes(
                 r.source_recipe_id,
                 COALESCE(r.translated_title, r.title) AS title,
                 COALESCE(r.translated_description, r.description) AS description,
+                COALESCE(r.translated_steps_json, r.steps_json, '[]'::jsonb) AS cooking_steps,
                 r.total_minutes,
                 r.calories,
+                (
+                    SELECT ROUND(SUM(i.price_per_100g_rub), 2)
+                    FROM recipe_ingredients ri
+                    JOIN ingredients i ON i.id = ri.ingredient_id
+                    WHERE ri.recipe_id = r.id
+                      AND i.price_per_100g_rub IS NOT NULL
+                ) AS estimated_cost_rub,
                 COALESCE(
                     r.translated_ingredients_json,
                     CAST((
@@ -89,7 +98,34 @@ def list_recipes(
                         ) AS ingredient_row
                     ) AS jsonb),
                     '[]'::jsonb
-                ) AS ingredients
+                ) AS ingredients,
+                COALESCE(
+                    CAST((
+                        SELECT json_agg(
+                            json_build_object(
+                                'raw_text', ingredient_row.raw_text,
+                                'name_ru', ingredient_row.name_ru,
+                                'calories_per_100g', ingredient_row.calories_per_100g,
+                                'price_per_100g_rub', ingredient_row.price_per_100g_rub
+                            )
+                            ORDER BY ingredient_row.id
+                        )
+                        FROM (
+                            SELECT
+                                ri.id,
+                                ri.raw_text,
+                                COALESCE(i.display_name_ru, i.canonical_name) AS name_ru,
+                                i.calories_per_100g,
+                                i.price_per_100g_rub
+                            FROM recipe_ingredients ri
+                            JOIN ingredients i ON i.id = ri.ingredient_id
+                            WHERE ri.recipe_id = r.id
+                            ORDER BY ri.id
+                            LIMIT 8
+                        ) AS ingredient_row
+                    ) AS jsonb),
+                    '[]'::jsonb
+                ) AS ingredient_details
             FROM recipes r
             {where_clause}
             ORDER BY r.id DESC
@@ -107,9 +143,16 @@ def list_recipes(
             "source_recipe_id": row["source_recipe_id"],
             "title": row["title"],
             "description": row["description"],
+            "cooking_steps": list(row["cooking_steps"] or []),
             "total_minutes": row["total_minutes"],
             "calories": float(row["calories"]) if row["calories"] is not None else None,
+            "estimated_cost_rub": (
+                float(row["estimated_cost_rub"])
+                if row["estimated_cost_rub"] is not None
+                else None
+            ),
             "ingredients": list(row["ingredients"] or []),
+            "ingredient_details": list(row["ingredient_details"] or []),
         }
         for row in rows
     ]

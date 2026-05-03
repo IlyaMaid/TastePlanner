@@ -2,17 +2,95 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { fetchMyProfile, updateMyProfile } from "../lib/profile";
+import { ALLERGY_CATEGORIES, PRODUCT_CATEGORIES } from "../lib/productCatalog";
+import { REGION_GROUPS, getFoodZoneByRegion } from "../lib/regions";
 
-const REGION_OPTIONS = [
-  { label: "Не выбран", value: "" },
-  { label: "Москва", value: "RU-MOW" },
-  { label: "Санкт-Петербург", value: "RU-SPE" },
-  { label: "Московская область", value: "RU-MOS" },
-  { label: "Краснодарский край", value: "RU-KDA" },
-  { label: "Свердловская область", value: "RU-SVE" },
-  { label: "Республика Татарстан", value: "RU-TA" },
-  { label: "Новосибирская область", value: "RU-NVS" },
-];
+function ProductPicker({ title, description, categories, selected, onChange }) {
+  const [openCategory, setOpenCategory] = useState(null);
+  const selectedSet = new Set(selected);
+
+  const toggleProduct = (product) => {
+    if (selectedSet.has(product)) {
+      onChange(selected.filter((item) => item !== product));
+      return;
+    }
+    onChange([...selected, product]);
+  };
+
+  return (
+    <div className="rounded-2xl bg-white p-4 ring-1 ring-slate-200">
+      <div>
+        <p className="font-semibold text-slate-900">{title}</p>
+        {description ? (
+          <p className="mt-1 text-sm leading-6 text-slate-500">{description}</p>
+        ) : null}
+      </div>
+
+      <div className="mt-4 flex flex-wrap gap-2">
+        {categories.map((category) => (
+          <button
+            key={category.id}
+            type="button"
+            onClick={() =>
+              setOpenCategory((current) =>
+                current === category.id ? null : category.id,
+              )
+            }
+            className={`rounded-2xl border px-4 py-2 text-sm font-medium transition ${
+              openCategory === category.id
+                ? "border-emerald-300 bg-emerald-50 text-emerald-700"
+                : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+            }`}
+          >
+            {category.label}
+          </button>
+        ))}
+      </div>
+
+      {openCategory ? (
+        <div className="mt-4 rounded-2xl bg-slate-50 p-3">
+          <div className="flex flex-wrap gap-2">
+            {categories
+              .find((category) => category.id === openCategory)
+              ?.products.map((product) => (
+                <button
+                  key={product}
+                  type="button"
+                  onClick={() => toggleProduct(product)}
+                  className={`rounded-xl border px-3 py-2 text-sm transition ${
+                    selectedSet.has(product)
+                      ? "border-slate-900 bg-slate-900 text-white"
+                      : "border-slate-200 bg-white text-slate-700 hover:border-slate-300"
+                  }`}
+                >
+                  {product}
+                </button>
+              ))}
+          </div>
+        </div>
+      ) : null}
+
+      <div className="mt-4 min-h-8">
+        {selected.length > 0 ? (
+          <div className="flex flex-wrap gap-2">
+            {selected.map((product) => (
+              <button
+                key={product}
+                type="button"
+                onClick={() => toggleProduct(product)}
+                className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700 transition hover:bg-slate-200"
+              >
+                {product} ×
+              </button>
+            ))}
+          </div>
+        ) : (
+          <p className="text-sm text-slate-400">Пока ничего не выбрано</p>
+        )}
+      </div>
+    </div>
+  );
+}
 
 function SectionHeader({ step, title, description }) {
   return (
@@ -99,7 +177,12 @@ export default function TastePlannerOnboardingPage({ authSession }) {
     goal: "",
     activity_level: "",
     region_code: "",
+    daily_budget_rub: "",
+    weekly_budget_rub: "",
     meals_per_day: "",
+    favorite_products_json: [],
+    disliked_products_json: [],
+    allergies_json: [],
   });
   const [fieldErrors, setFieldErrors] = useState({});
   const [errorMessage, setErrorMessage] = useState("");
@@ -133,7 +216,12 @@ export default function TastePlannerOnboardingPage({ authSession }) {
           goal: profile.goal ?? "",
           activity_level: profile.activity_level ?? "",
           region_code: profile.region_code ?? "",
+          daily_budget_rub: profile.daily_budget_rub ?? "",
+          weekly_budget_rub: profile.weekly_budget_rub ?? "",
           meals_per_day: profile.meals_per_day ?? "",
+          favorite_products_json: profile.favorite_products_json ?? [],
+          disliked_products_json: profile.disliked_products_json ?? [],
+          allergies_json: profile.allergies_json ?? [],
         });
       } catch (error) {
         if (isActive) {
@@ -187,7 +275,12 @@ export default function TastePlannerOnboardingPage({ authSession }) {
         activity_level: form.activity_level || null,
         region_code: form.region_code || null,
         daily_calorie_target: null,
+        daily_budget_rub: toNullableNumber(form.daily_budget_rub),
+        weekly_budget_rub: toNullableNumber(form.weekly_budget_rub),
         meals_per_day: toNullableNumber(form.meals_per_day),
+        favorite_products_json: form.favorite_products_json,
+        disliked_products_json: form.disliked_products_json,
+        allergies_json: form.allergies_json,
       });
 
       setSuccessMessage("Профиль сохранен");
@@ -199,6 +292,7 @@ export default function TastePlannerOnboardingPage({ authSession }) {
       setIsSaving(false);
     }
   };
+  const selectedFoodZone = getFoodZoneByRegion(form.region_code);
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900">
@@ -302,8 +396,8 @@ export default function TastePlannerOnboardingPage({ authSession }) {
                 <div className="rounded-3xl bg-slate-50 p-5 sm:p-6">
                   <SectionHeader
                     step="Шаг 2"
-                    title="Цель и режим"
-                    description="Эти параметры помогут позже рассчитать калорийность и подобрать базовый рацион."
+                    title="Цель, режим и бюджет"
+                    description="Эти параметры помогут рассчитать калорийность, число приемов пищи и ориентир по стоимости рациона."
                   />
 
                   <div className="mt-5 grid gap-4 sm:grid-cols-2">
@@ -354,12 +448,76 @@ export default function TastePlannerOnboardingPage({ authSession }) {
                         className={inputClassName(Boolean(fieldErrors.meals_per_day))}
                       />
                     </Field>
+
+                    <Field label="Бюджет на день, ₽" error={fieldErrors.daily_budget_rub}>
+                      <input
+                        type="number"
+                        min="0"
+                        inputMode="decimal"
+                        value={form.daily_budget_rub}
+                        onChange={(e) =>
+                          handleNumberChange("daily_budget_rub", e.target.value)
+                        }
+                        placeholder="700"
+                        className={inputClassName(Boolean(fieldErrors.daily_budget_rub))}
+                      />
+                    </Field>
+
+                    <Field label="Бюджет на неделю, ₽" error={fieldErrors.weekly_budget_rub}>
+                      <input
+                        type="number"
+                        min="0"
+                        inputMode="decimal"
+                        value={form.weekly_budget_rub}
+                        onChange={(e) =>
+                          handleNumberChange("weekly_budget_rub", e.target.value)
+                        }
+                        placeholder="4900"
+                        className={inputClassName(Boolean(fieldErrors.weekly_budget_rub))}
+                      />
+                    </Field>
                   </div>
                 </div>
 
                 <div className="rounded-3xl bg-slate-50 p-5 sm:p-6">
                   <SectionHeader
                     step="Шаг 3"
+                    title="Предпочтения и ограничения"
+                    description="Выберите продукты, которые пользователь любит, не любит или не может есть из-за аллергии."
+                  />
+
+                  <div className="mt-5 space-y-4">
+                    <ProductPicker
+                      title="Любимые продукты"
+                      description="Эти продукты будут чаще учитываться в рекомендациях."
+                      categories={PRODUCT_CATEGORIES}
+                      selected={form.favorite_products_json}
+                      onChange={(value) =>
+                        handleChange("favorite_products_json", value)
+                      }
+                    />
+                    <ProductPicker
+                      title="Нелюбимые продукты"
+                      description="Такие продукты лучше понижать в выдаче или избегать."
+                      categories={PRODUCT_CATEGORIES}
+                      selected={form.disliked_products_json}
+                      onChange={(value) =>
+                        handleChange("disliked_products_json", value)
+                      }
+                    />
+                    <ProductPicker
+                      title="Аллергии"
+                      description="Аллергены должны исключаться из будущего рациона."
+                      categories={ALLERGY_CATEGORIES}
+                      selected={form.allergies_json}
+                      onChange={(value) => handleChange("allergies_json", value)}
+                    />
+                  </div>
+                </div>
+
+                <div className="rounded-3xl bg-slate-50 p-5 sm:p-6">
+                  <SectionHeader
+                    step="Шаг 4"
                     title="Регион"
                     description="Вместо кода региона выберите понятный вариант из списка. Это пригодится для локализации рецептов и сезонности."
                   />
@@ -373,14 +531,30 @@ export default function TastePlannerOnboardingPage({ authSession }) {
                         }
                         className={inputClassName(Boolean(fieldErrors.region_code))}
                       >
-                        {REGION_OPTIONS.map((option) => (
-                          <option key={option.value || "empty"} value={option.value}>
-                            {option.label}
-                          </option>
+                        <option value="">Не выбран</option>
+                        {REGION_GROUPS.map((group) => (
+                          <optgroup key={group.label} label={group.label}>
+                            {group.options.map((option) => (
+                              <option key={option.value} value={option.value}>
+                                {option.label}
+                              </option>
+                            ))}
+                          </optgroup>
                         ))}
                       </select>
                     </Field>
                   </div>
+
+                  {selectedFoodZone ? (
+                    <div className="mt-5 rounded-2xl bg-white p-4 text-sm text-slate-600 ring-1 ring-slate-200">
+                      <p className="font-semibold text-slate-900">
+                        {selectedFoodZone.name}
+                      </p>
+                      <p className="mt-2">
+                        Типичные продукты: {selectedFoodZone.products.join(", ")}.
+                      </p>
+                    </div>
+                  ) : null}
                 </div>
 
                 <div className="flex flex-col gap-4 border-t border-slate-200 pt-6 sm:flex-row sm:items-center sm:justify-between">
@@ -403,40 +577,50 @@ export default function TastePlannerOnboardingPage({ authSession }) {
           </section>
 
           <aside className="space-y-6">
-            <div className="rounded-3xl bg-slate-900 p-6 text-white shadow-sm">
-              <h2 className="text-xl font-semibold">Что изменилось</h2>
-              <div className="mt-4 space-y-3 text-sm text-slate-200">
-                <div className="rounded-2xl bg-white/10 p-4">
-                  Регион теперь выбирается по названию, а не по коду
+            <div className="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+              <h2 className="text-xl font-semibold">Сводка анкеты</h2>
+              <div className="mt-5 space-y-3 text-sm">
+                <div className="rounded-2xl bg-slate-50 px-4 py-3 text-slate-600">
+                  <span className="font-medium text-slate-900">Бюджет: </span>
+                  {form.daily_budget_rub
+                    ? `${form.daily_budget_rub} ₽ в день`
+                    : form.weekly_budget_rub
+                      ? `${form.weekly_budget_rub} ₽ в неделю`
+                      : "не указан"}
                 </div>
-                <div className="rounded-2xl bg-white/10 p-4">
-                  Калорийность не нужно вводить вручную
+                <div className="rounded-2xl bg-slate-50 px-4 py-3 text-slate-600">
+                  <span className="font-medium text-slate-900">Любимые продукты: </span>
+                  {form.favorite_products_json.length > 0
+                    ? form.favorite_products_json.join(", ")
+                    : "не выбраны"}
                 </div>
-                <div className="rounded-2xl bg-white/10 p-4">
-                  Числовые поля защищены от отрицательных значений
+                <div className="rounded-2xl bg-slate-50 px-4 py-3 text-slate-600">
+                  <span className="font-medium text-slate-900">Нелюбимые продукты: </span>
+                  {form.disliked_products_json.length > 0
+                    ? form.disliked_products_json.join(", ")
+                    : "не выбраны"}
+                </div>
+                <div className="rounded-2xl bg-slate-50 px-4 py-3 text-slate-600">
+                  <span className="font-medium text-slate-900">Аллергии: </span>
+                  {form.allergies_json.length > 0
+                    ? form.allergies_json.join(", ")
+                    : "не выбраны"}
                 </div>
               </div>
             </div>
 
-            <div className="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
-              <h2 className="text-xl font-semibold">Что уже подключено</h2>
-              <div className="mt-5 space-y-3 text-sm">
-                {[
-                  "Регистрация и вход через backend",
-                  "Профиль пользователя в PostgreSQL",
-                  "Автоматическое создание профиля",
-                  "Редактирование анкеты через API",
-                ].map((item) => (
-                  <div
-                    key={item}
-                    className="flex items-start gap-3 rounded-2xl bg-slate-50 px-4 py-3 text-slate-600"
-                  >
-                    <span className="mt-1 h-2.5 w-2.5 shrink-0 rounded-full bg-emerald-500" />
-                    <span>{item}</span>
-                  </div>
-                ))}
+            {selectedFoodZone ? (
+              <div className="rounded-3xl bg-slate-900 p-6 text-white shadow-sm">
+                <h2 className="text-xl font-semibold">Региональный профиль</h2>
+                <p className="mt-3 text-sm font-medium text-emerald-200">
+                  {selectedFoodZone.name}
+                </p>
+                <p className="mt-4 text-sm leading-6 text-slate-200">
+                  В рекомендациях можно учитывать продукты, которые чаще встречаются
+                  в выбранной зоне: {selectedFoodZone.products.join(", ")}.
+                </p>
               </div>
-            </div>
+            ) : null}
           </aside>
         </div>
       </div>

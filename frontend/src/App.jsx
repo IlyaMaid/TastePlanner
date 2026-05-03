@@ -58,6 +58,8 @@ export default function App() {
   });
 
   const isAuthenticated = Boolean(authSession?.accessToken);
+  const accessToken = authSession?.accessToken;
+  const refreshToken = authSession?.refreshToken;
 
   useEffect(() => {
     if (authSession) {
@@ -75,7 +77,7 @@ export default function App() {
     let isActive = true;
 
     async function bootstrapAuth() {
-      if (!authSession?.accessToken) {
+      if (!accessToken) {
         if (isActive) {
           setIsAuthReady(true);
         }
@@ -83,14 +85,14 @@ export default function App() {
       }
 
       try {
-        const user = await fetchCurrentUser(authSession.accessToken);
+        const user = await fetchCurrentUser(accessToken);
         if (isActive) {
           setAuthSession((prev) => (prev ? { ...prev, user } : prev));
           setIsAuthReady(true);
         }
         return;
       } catch {
-        if (!authSession.refreshToken) {
+        if (!refreshToken) {
           if (isActive) {
             setAuthSession(null);
             setIsAuthReady(true);
@@ -100,7 +102,7 @@ export default function App() {
       }
 
       try {
-        const refreshed = await refreshSession(authSession.refreshToken);
+        const refreshed = await refreshSession(refreshToken);
         const nextSession = createAuthSession(refreshed);
         const user = await fetchCurrentUser(nextSession.accessToken);
 
@@ -121,7 +123,7 @@ export default function App() {
     return () => {
       isActive = false;
     };
-  }, []);
+  }, [accessToken, refreshToken]);
 
   const handleAuthSuccess = (session) => {
     setAuthSession(session);
@@ -207,7 +209,7 @@ export default function App() {
                 isAuthenticated={isAuthenticated}
                 isAuthReady={isAuthReady}
               >
-                <ShoppingListPage />
+                <ShoppingListPage authSession={authSession} />
               </ProtectedRoute>
             }
           />

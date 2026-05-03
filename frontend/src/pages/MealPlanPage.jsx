@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 
-import { fetchMealPlan, swapMeal } from "../lib/recommendations";
+import { fetchMyProfile } from "../lib/profile";
+import { fetchMealPlan, saveUserEvent, swapMeal } from "../lib/recommendations";
 
 function NutritionTile({ label, value }) {
   return (
@@ -37,11 +38,17 @@ function recalculateTotals(meals) {
     carbs: Number(
       meals.reduce((sum, meal) => sum + (meal.recipe.carbs || 0), 0).toFixed(1),
     ),
+    estimated_cost_rub: Number(
+      meals
+        .reduce((sum, meal) => sum + (meal.recipe.estimated_cost_rub || 0), 0)
+        .toFixed(1),
+    ),
   };
 }
 
 export default function MealPlanPage({ authSession }) {
   const [mealPlan, setMealPlan] = useState(null);
+  const [profile, setProfile] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [swappingSlot, setSwappingSlot] = useState(null);
@@ -49,7 +56,7 @@ export default function MealPlanPage({ authSession }) {
 
   const accessToken = authSession?.accessToken;
 
-  const loadMealPlan = async (showFullLoader = false) => {
+  const loadMealPlan = useCallback(async (showFullLoader = false) => {
     if (!accessToken) {
       return;
     }
@@ -63,7 +70,11 @@ export default function MealPlanPage({ authSession }) {
     setErrorMessage("");
 
     try {
-      const payload = await fetchMealPlan(accessToken);
+      const currentProfile = await fetchMyProfile(accessToken);
+      setProfile(currentProfile);
+      const payload = await fetchMealPlan(accessToken, {
+        mealsPerDay: currentProfile.meals_per_day,
+      });
       setMealPlan(payload);
     } catch (error) {
       setErrorMessage(error.message || "Не удалось построить план питания.");
@@ -71,11 +82,11 @@ export default function MealPlanPage({ authSession }) {
       setIsLoading(false);
       setIsRefreshing(false);
     }
-  };
+  }, [accessToken]);
 
   useEffect(() => {
     loadMealPlan(true);
-  }, [accessToken]);
+  }, [loadMealPlan]);
 
   const meals = mealPlan?.meals ?? [];
   const totals = mealPlan?.totals ?? {
@@ -83,6 +94,7 @@ export default function MealPlanPage({ authSession }) {
     protein: 0,
     fat: 0,
     carbs: 0,
+    estimated_cost_rub: 0,
   };
 
   const handleSwapMeal = async (meal) => {
@@ -100,6 +112,19 @@ export default function MealPlanPage({ authSession }) {
         target_calories: meal.target_calories,
         excluded_recipe_ids: mealPlan.meals.map((item) => item.recipe.id),
       });
+
+      try {
+        await saveUserEvent(accessToken, {
+          event_type: "meal_swap",
+          recipe_id: payload.meal.recipe.id,
+          payload_json: {
+            slot: meal.slot,
+            previous_recipe_id: meal.recipe.id,
+          },
+        });
+      } catch {
+        // Event tracking is intentionally non-blocking for the meal plan.
+      }
 
       setMealPlan((prev) => {
         if (!prev) {
@@ -126,10 +151,16 @@ export default function MealPlanPage({ authSession }) {
 
   const strategyLabel =
     mealPlan?.strategy === "personalized_feedback"
-      ? "ML-персонализация по вашим лайкам"
+      ? "Персонализация по вашим лайкам"
       : mealPlan?.strategy === "cold_start_popularity"
-        ? "Стартовый ML-план по популярным рецептам"
-        : "ML-план питания";
+        ? "Стартовый план по популярным рецептам"
+        : "План питания";
+  const selectedMealsPerDay =
+    mealPlan?.meals_per_day ?? profile?.meals_per_day ?? "не указано";
+  const regionalFoodZone = mealPlan?.regional_food_zone;
+  const preferenceProfile = mealPlan?.preference_profile;
+  const dailyBudget = profile?.daily_budget_rub;
+  const weeklyBudget = profile?.weekly_budget_rub;
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900">
@@ -143,12 +174,12 @@ export default function MealPlanPage({ authSession }) {
               План питания на день
             </h1>
             <p className="mt-3 max-w-2xl text-slate-600">
-              Этот экран собирается из ML-рекомендаций и параметров вашего
-              профиля: числа приемов пищи, целей и расчетной калорийности.
+              Рацион учитывает параметры профиля: число приемов пищи, цель,
+              ориентир по калориям, регион и пищевые ограничения.
             </p>
             {!isLoading ? (
               <p className="mt-3 text-sm font-medium text-emerald-700">
-                Режим: {strategyLabel}
+                Режим: {strategyLabel} · приемов пищи: {selectedMealsPerDay}
               </p>
             ) : null}
           </div>
@@ -182,8 +213,7 @@ export default function MealPlanPage({ authSession }) {
           <div className="rounded-3xl bg-white p-10 text-center shadow-sm ring-1 ring-slate-200">
             <h2 className="text-2xl font-semibold">Собираем рацион...</h2>
             <p className="mt-3 text-slate-600">
-              Система подбирает блюда из ML-рекомендаций и раскладывает их по
-              приемам пищи.
+              Подбираем блюда и раскладываем их по приемам пищи.
             </p>
           </div>
         ) : (
@@ -228,10 +258,18 @@ export default function MealPlanPage({ authSession }) {
                     </div>
                   </div>
 
-                  <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
+                  <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-5">
                     <NutritionTile
                       label="Калории"
                       value={formatNumber(meal.recipe.calories, " ккал")}
+                    />
+                    <NutritionTile
+                      label="Стоимость"
+                      value={
+                        meal.recipe.estimated_cost_rub != null
+                          ? `≈ ${formatNumber(meal.recipe.estimated_cost_rub, " ₽")}`
+                          : "Нет данных"
+                      }
                     />
                     <NutritionTile
                       label="Белки"
@@ -246,6 +284,24 @@ export default function MealPlanPage({ authSession }) {
                       value={formatNumber(meal.recipe.carbs, " г")}
                     />
                   </div>
+
+                  {meal.recipe.cooking_steps?.length > 0 ? (
+                    <div className="mt-6 rounded-2xl bg-slate-50 p-4">
+                      <p className="text-xs font-medium uppercase tracking-[0.08em] text-slate-500">
+                        Способ приготовления
+                      </p>
+                      <ol className="mt-3 space-y-2 text-sm leading-6 text-slate-700">
+                        {meal.recipe.cooking_steps.slice(0, 4).map((step, index) => (
+                          <li key={`${meal.recipe.id}-${index}`} className="flex gap-3">
+                            <span className="font-semibold text-slate-900">
+                              {index + 1}.
+                            </span>
+                            <span>{step}</span>
+                          </li>
+                        ))}
+                      </ol>
+                    </div>
+                  ) : null}
                 </article>
               ))}
             </section>
@@ -267,6 +323,18 @@ export default function MealPlanPage({ authSession }) {
                     <strong>{formatNumber(totals.calories, " ккал")}</strong>
                   </div>
                   <div className="flex items-center justify-between rounded-2xl bg-slate-50 px-4 py-3">
+                    <span>Стоимость</span>
+                    <strong>≈ {formatNumber(totals.estimated_cost_rub, " ₽")}</strong>
+                  </div>
+                  <div className="flex items-center justify-between rounded-2xl bg-slate-50 px-4 py-3">
+                    <span>Бюджет</span>
+                    <strong>
+                      {dailyBudget != null
+                        ? `${Math.round(dailyBudget)} ₽`
+                        : "Не указан"}
+                    </strong>
+                  </div>
+                  <div className="flex items-center justify-between rounded-2xl bg-slate-50 px-4 py-3">
                     <span>Белки</span>
                     <strong>{formatNumber(totals.protein, " г")}</strong>
                   </div>
@@ -281,19 +349,60 @@ export default function MealPlanPage({ authSession }) {
                 </div>
               </div>
 
+              {regionalFoodZone ? (
+                <div className="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+                  <h2 className="text-xl font-semibold">Региональная зона</h2>
+                  <p className="mt-3 text-sm font-semibold text-emerald-700">
+                    {regionalFoodZone.name_ru}
+                  </p>
+                  <p className="mt-3 text-sm leading-6 text-slate-600">
+                    {regionalFoodZone.summary_ru}
+                  </p>
+                </div>
+              ) : null}
+
+              {preferenceProfile ? (
+                <div className="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+                  <h2 className="text-xl font-semibold">Предпочтения</h2>
+                  <div className="mt-5 space-y-3 text-sm text-slate-600">
+                    <div className="rounded-2xl bg-slate-50 px-4 py-3">
+                      Любимые продукты:{" "}
+                      {preferenceProfile.favorite_products?.length
+                        ? preferenceProfile.favorite_products.join(", ")
+                        : "не выбраны"}
+                    </div>
+                    <div className="rounded-2xl bg-slate-50 px-4 py-3">
+                      Исключить:{" "}
+                      {preferenceProfile.allergies?.length
+                        ? preferenceProfile.allergies.join(", ")
+                        : "не выбрано"}
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+
               <div className="rounded-3xl bg-slate-900 p-6 text-white shadow-sm">
-                <h2 className="text-xl font-semibold">Как это работает</h2>
+                <h2 className="text-xl font-semibold">Настройки рациона</h2>
                 <div className="mt-4 space-y-3 text-sm text-slate-200">
                   <div className="rounded-2xl bg-white/10 p-4">
-                    ML-модель сначала выбирает наиболее подходящие рецепты
+                    Приемов пищи в день: {selectedMealsPerDay}
                   </div>
                   <div className="rounded-2xl bg-white/10 p-4">
-                    Затем система раскладывает их по приемам пищи, учитывая
-                    число приемов и ориентир по калориям
+                    Дневная цель:{" "}
+                    {mealPlan?.daily_target_calories != null
+                      ? `${Math.round(mealPlan.daily_target_calories)} ккал`
+                      : "не указана"}
                   </div>
                   <div className="rounded-2xl bg-white/10 p-4">
-                    Кнопка «Заменить» подбирает другой рецепт для того же слота
-                    и пересчитывает итог по дню
+                    Бюджет:{" "}
+                    {dailyBudget != null
+                      ? `${Math.round(dailyBudget)} ₽ в день`
+                      : weeklyBudget != null
+                        ? `${Math.round(weeklyBudget)} ₽ в неделю`
+                        : "не указан"}
+                  </div>
+                  <div className="rounded-2xl bg-white/10 p-4">
+                    Рацион можно обновить или заменить отдельное блюдо.
                   </div>
                 </div>
               </div>

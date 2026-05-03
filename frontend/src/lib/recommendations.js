@@ -42,11 +42,26 @@ export function saveRecommendationFeedback(accessToken, payload) {
   });
 }
 
+export function saveUserEvent(accessToken, payload) {
+  return requestRecommendations("/recommendations/events", accessToken, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function fetchReadiness(accessToken) {
+  return requestRecommendations("/recommendations/readiness", accessToken);
+}
+
 export function fetchMealPlan(accessToken, options = {}) {
   const params = new URLSearchParams();
 
   if (options.limit) {
     params.set("limit", String(options.limit));
+  }
+
+  if (options.mealsPerDay) {
+    params.set("meals_per_day", String(options.mealsPerDay));
   }
 
   const query = params.toString();
@@ -61,6 +76,24 @@ export function swapMeal(accessToken, payload) {
     method: "POST",
     body: JSON.stringify(payload),
   });
+}
+
+export function fetchShoppingList(accessToken, options = {}) {
+  const params = new URLSearchParams();
+
+  if (options.days) {
+    params.set("days", String(options.days));
+  }
+
+  if (options.mealsPerDay) {
+    params.set("meals_per_day", String(options.mealsPerDay));
+  }
+
+  const query = params.toString();
+  return requestRecommendations(
+    `/recommendations/shopping-list${query ? `?${query}` : ""}`,
+    accessToken,
+  );
 }
 
 export function fetchRecipeCatalog(accessToken, options = {}) {

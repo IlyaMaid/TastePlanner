@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 
+import { fetchMyProfile } from "../lib/profile";
 import { fetchMealPlan } from "../lib/recommendations";
 
 const WEEK_DAYS = [
@@ -48,18 +49,24 @@ function calculateTotals(meals) {
     carbs: Number(
       meals.reduce((sum, meal) => sum + (meal.recipe.carbs || 0), 0).toFixed(1),
     ),
+    estimated_cost_rub: Number(
+      meals
+        .reduce((sum, meal) => sum + (meal.recipe.estimated_cost_rub || 0), 0)
+        .toFixed(1),
+    ),
   };
 }
 
 export default function WeeklyMealPlanPage({ authSession }) {
   const [basePlan, setBasePlan] = useState(null);
+  const [profile, setProfile] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
 
   const accessToken = authSession?.accessToken;
 
-  const loadPlan = async (showFullLoader = false) => {
+  const loadPlan = useCallback(async (showFullLoader = false) => {
     if (!accessToken) {
       return;
     }
@@ -73,7 +80,11 @@ export default function WeeklyMealPlanPage({ authSession }) {
     setErrorMessage("");
 
     try {
-      const payload = await fetchMealPlan(accessToken);
+      const currentProfile = await fetchMyProfile(accessToken);
+      setProfile(currentProfile);
+      const payload = await fetchMealPlan(accessToken, {
+        mealsPerDay: currentProfile.meals_per_day,
+      });
       setBasePlan(payload);
     } catch (error) {
       setErrorMessage(error.message || "Не удалось загрузить недельный план.");
@@ -81,11 +92,11 @@ export default function WeeklyMealPlanPage({ authSession }) {
       setIsLoading(false);
       setIsRefreshing(false);
     }
-  };
+  }, [accessToken]);
 
   useEffect(() => {
     loadPlan(true);
-  }, [accessToken]);
+  }, [loadPlan]);
 
   const weeklyPlan = useMemo(() => {
     if (!basePlan?.meals?.length) {
@@ -104,7 +115,7 @@ export default function WeeklyMealPlanPage({ authSession }) {
 
   const weeklyTotals = useMemo(() => {
     if (!weeklyPlan.length) {
-      return { calories: 0, protein: 0, fat: 0, carbs: 0 };
+      return { calories: 0, protein: 0, fat: 0, carbs: 0, estimated_cost_rub: 0 };
     }
 
     return {
@@ -120,8 +131,15 @@ export default function WeeklyMealPlanPage({ authSession }) {
       carbs: Number(
         weeklyPlan.reduce((sum, day) => sum + day.totals.carbs, 0).toFixed(1),
       ),
+      estimated_cost_rub: Number(
+        weeklyPlan
+          .reduce((sum, day) => sum + day.totals.estimated_cost_rub, 0)
+          .toFixed(1),
+      ),
     };
   }, [weeklyPlan]);
+  const regionalFoodZone = basePlan?.regional_food_zone;
+  const weeklyBudget = profile?.weekly_budget_rub;
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900">
@@ -138,6 +156,12 @@ export default function WeeklyMealPlanPage({ authSession }) {
               Здесь собран недельный обзор на базе текущего ML-плана дня, чтобы
               было удобнее смотреть рацион сразу по всем дням.
             </p>
+            {!isLoading ? (
+              <p className="mt-3 text-sm font-medium text-emerald-700">
+                Приемов пищи в день:{" "}
+                {basePlan?.meals_per_day ?? profile?.meals_per_day ?? "не указано"}
+              </p>
+            ) : null}
           </div>
 
           <div className="flex flex-wrap gap-3">
@@ -185,6 +209,7 @@ export default function WeeklyMealPlanPage({ authSession }) {
                       <h2 className="text-2xl font-semibold">{dayPlan.day}</h2>
                       <p className="mt-2 text-sm text-slate-500">
                         {formatNumber(dayPlan.totals.calories, " ккал")} ·{" "}
+                        ≈ {formatNumber(dayPlan.totals.estimated_cost_rub, " ₽")} ·{" "}
                         {formatNumber(dayPlan.totals.protein, " г белка")}
                       </p>
                     </div>
@@ -207,9 +232,15 @@ export default function WeeklyMealPlanPage({ authSession }) {
                           </div>
 
                           <div className="text-sm text-slate-500">
-                            {formatNumber(meal.recipe.calories, " ккал")}
+                            {formatNumber(meal.recipe.calories, " ккал")} · ≈{" "}
+                            {formatNumber(meal.recipe.estimated_cost_rub, " ₽")}
                           </div>
                         </div>
+                        {meal.recipe.cooking_steps?.length > 0 ? (
+                          <p className="mt-3 text-sm leading-6 text-slate-600">
+                            {meal.recipe.cooking_steps[0]}
+                          </p>
+                        ) : null}
                       </div>
                     ))}
                   </div>
@@ -226,6 +257,18 @@ export default function WeeklyMealPlanPage({ authSession }) {
                     <strong>{formatNumber(weeklyTotals.calories, " ккал")}</strong>
                   </div>
                   <div className="flex items-center justify-between rounded-2xl bg-slate-50 px-4 py-3">
+                    <span>Стоимость</span>
+                    <strong>≈ {formatNumber(weeklyTotals.estimated_cost_rub, " ₽")}</strong>
+                  </div>
+                  <div className="flex items-center justify-between rounded-2xl bg-slate-50 px-4 py-3">
+                    <span>Бюджет</span>
+                    <strong>
+                      {weeklyBudget != null
+                        ? `${Math.round(weeklyBudget)} ₽`
+                        : "Не указан"}
+                    </strong>
+                  </div>
+                  <div className="flex items-center justify-between rounded-2xl bg-slate-50 px-4 py-3">
                     <span>Белки</span>
                     <strong>{formatNumber(weeklyTotals.protein, " г")}</strong>
                   </div>
@@ -240,17 +283,36 @@ export default function WeeklyMealPlanPage({ authSession }) {
                 </div>
               </div>
 
+              {regionalFoodZone ? (
+                <div className="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+                  <h2 className="text-xl font-semibold">Региональная зона</h2>
+                  <p className="mt-3 text-sm font-semibold text-emerald-700">
+                    {regionalFoodZone.name_ru}
+                  </p>
+                  <p className="mt-3 text-sm leading-6 text-slate-600">
+                    {regionalFoodZone.summary_ru}
+                  </p>
+                </div>
+              ) : null}
+
               <div className="rounded-3xl bg-slate-900 p-6 text-white shadow-sm">
-                <h2 className="text-xl font-semibold">Как использовать</h2>
+                <h2 className="text-xl font-semibold">Параметры недели</h2>
                 <div className="mt-4 space-y-3 text-sm text-slate-200">
                   <div className="rounded-2xl bg-white/10 p-4">
-                    Смотрите распределение блюд по всей неделе одним экраном
+                    Приемов пищи в день:{" "}
+                    {basePlan?.meals_per_day ?? profile?.meals_per_day ?? "не указано"}
                   </div>
                   <div className="rounded-2xl bg-white/10 p-4">
-                    Возвращайтесь в дневной план, если нужно заменить отдельное блюдо
+                    Дней в плане: {WEEK_DAYS.length}
                   </div>
                   <div className="rounded-2xl bg-white/10 p-4">
-                    После новых лайков и обновления неделя тоже станет точнее
+                    Общая стоимость: ≈ {formatNumber(weeklyTotals.estimated_cost_rub, " ₽")}
+                  </div>
+                  <div className="rounded-2xl bg-white/10 p-4">
+                    Бюджет:{" "}
+                    {weeklyBudget != null
+                      ? `${Math.round(weeklyBudget)} ₽ в неделю`
+                      : "не указан"}
                   </div>
                 </div>
               </div>

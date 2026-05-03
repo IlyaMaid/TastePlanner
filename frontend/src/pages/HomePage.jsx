@@ -14,9 +14,8 @@ export default function HomePage() {
           </h1>
 
           <p className="mt-5 text-lg text-slate-600">
-            Веб-приложение для формирования персонального плана питания на
-            основе вкусовых предпочтений, ограничений, целей пользователя и
-            образа жизни.
+            Собирайте рацион с учетом любимых продуктов, аллергий, бюджета,
+            региона, калорийности и времени приготовления.
           </p>
 
           <div className="mt-8 flex gap-4">
@@ -27,12 +26,12 @@ export default function HomePage() {
               Начать подбор рациона
             </Link>
 
-            <button
-              className="rounded-2xl border border-slate-300 px-6 py-3 text-sm font-semibold text-slate-700"
-              type="button"
+            <Link
+              to="/auth"
+              className="rounded-2xl border border-slate-300 px-6 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-100"
             >
-              О проекте
-            </button>
+              Войти
+            </Link>
           </div>
         </div>
 
@@ -40,8 +39,8 @@ export default function HomePage() {
           <div className="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
             <h2 className="text-xl font-semibold tracking-tight">Персонализация</h2>
             <p className="mt-3 text-sm text-slate-600">
-              Учет целей, бюджета, любимых кухонь, аллергий и нелюбимых
-              продуктов.
+              Учет целей, бюджета, любимых и нелюбимых продуктов, аллергий и
+              региональных особенностей.
             </p>
           </div>
 

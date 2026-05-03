@@ -3,12 +3,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
-from typing import Iterable, Optional
+from typing import Any, Iterable, Optional
 
 import joblib
 import numpy as np
 from sqlalchemy import text
 from sqlalchemy.orm import Session
+
+from app.services.regional_food_zones import get_region_food_zone
 
 
 ARTIFACT_PATH = (
@@ -145,11 +147,19 @@ def _fetch_available_foodcom_rows(
                 r.source_recipe_id,
                 COALESCE(r.translated_title, r.title) AS title,
                 COALESCE(r.translated_description, r.description) AS description,
+                COALESCE(r.translated_steps_json, r.steps_json, '[]'::jsonb) AS cooking_steps,
                 r.total_minutes,
                 r.calories,
                 r.protein,
                 r.fat,
                 r.carbs,
+                (
+                    SELECT ROUND(SUM(i.price_per_100g_rub), 2)
+                    FROM recipe_ingredients ri
+                    JOIN ingredients i ON i.id = ri.ingredient_id
+                    WHERE ri.recipe_id = r.id
+                      AND i.price_per_100g_rub IS NOT NULL
+                ) AS estimated_cost_rub,
                 COALESCE(
                     r.translated_ingredients_json,
                     CAST((
@@ -163,7 +173,34 @@ def _fetch_available_foodcom_rows(
                         ) AS ingredient_row
                     ) AS jsonb),
                     '[]'::jsonb
-                ) AS ingredients
+                ) AS ingredients,
+                COALESCE(
+                    CAST((
+                        SELECT json_agg(
+                            json_build_object(
+                                'raw_text', ingredient_row.raw_text,
+                                'name_ru', ingredient_row.name_ru,
+                                'calories_per_100g', ingredient_row.calories_per_100g,
+                                'price_per_100g_rub', ingredient_row.price_per_100g_rub
+                            )
+                            ORDER BY ingredient_row.id
+                        )
+                        FROM (
+                            SELECT
+                                ri.id,
+                                ri.raw_text,
+                                COALESCE(i.display_name_ru, i.canonical_name) AS name_ru,
+                                i.calories_per_100g,
+                                i.price_per_100g_rub
+                            FROM recipe_ingredients ri
+                            JOIN ingredients i ON i.id = ri.ingredient_id
+                            WHERE ri.recipe_id = r.id
+                            ORDER BY ri.id
+                            LIMIT 8
+                        ) AS ingredient_row
+                    ) AS jsonb),
+                    '[]'::jsonb
+                ) AS ingredient_details
             FROM recipes r
             WHERE r.source = 'foodcom'
               AND r.source_recipe_id = ANY(:source_recipe_ids)
@@ -177,15 +214,312 @@ def _fetch_available_foodcom_rows(
             "id": row["id"],
             "title": row["title"],
             "description": row["description"],
+            "cooking_steps": list(row["cooking_steps"] or []),
             "total_minutes": row["total_minutes"],
             "calories": float(row["calories"]) if row["calories"] is not None else None,
             "protein": float(row["protein"]) if row["protein"] is not None else None,
             "fat": float(row["fat"]) if row["fat"] is not None else None,
             "carbs": float(row["carbs"]) if row["carbs"] is not None else None,
+            "estimated_cost_rub": (
+                float(row["estimated_cost_rub"])
+                if row["estimated_cost_rub"] is not None
+                else None
+            ),
             "ingredients": list(row["ingredients"] or []),
+            "ingredient_details": list(row["ingredient_details"] or []),
         }
         for row in rows
     }
+
+
+def _fetch_fallback_recipe_rows(
+    db: Session,
+    excluded_recipe_ids: Iterable[int],
+    limit: int,
+) -> list[dict]:
+    excluded_ids = list({int(recipe_id) for recipe_id in excluded_recipe_ids})
+    rows = db.execute(
+        text(
+            """
+            SELECT
+                r.id,
+                r.source,
+                r.source_recipe_id,
+                COALESCE(r.translated_title, r.title) AS title,
+                COALESCE(r.translated_description, r.description) AS description,
+                COALESCE(r.translated_steps_json, r.steps_json, '[]'::jsonb) AS cooking_steps,
+                r.total_minutes,
+                r.calories,
+                r.protein,
+                r.fat,
+                r.carbs,
+                (
+                    SELECT ROUND(SUM(i.price_per_100g_rub), 2)
+                    FROM recipe_ingredients ri
+                    JOIN ingredients i ON i.id = ri.ingredient_id
+                    WHERE ri.recipe_id = r.id
+                      AND i.price_per_100g_rub IS NOT NULL
+                ) AS estimated_cost_rub,
+                COALESCE(
+                    r.translated_ingredients_json,
+                    CAST((
+                        SELECT json_agg(ingredient_row.raw_text ORDER BY ingredient_row.id)
+                        FROM (
+                            SELECT ri.id, ri.raw_text
+                            FROM recipe_ingredients ri
+                            WHERE ri.recipe_id = r.id
+                            ORDER BY ri.id
+                            LIMIT 8
+                        ) AS ingredient_row
+                    ) AS jsonb),
+                    '[]'::jsonb
+                ) AS ingredients,
+                COALESCE(
+                    CAST((
+                        SELECT json_agg(
+                            json_build_object(
+                                'raw_text', ingredient_row.raw_text,
+                                'name_ru', ingredient_row.name_ru,
+                                'calories_per_100g', ingredient_row.calories_per_100g,
+                                'price_per_100g_rub', ingredient_row.price_per_100g_rub
+                            )
+                            ORDER BY ingredient_row.id
+                        )
+                        FROM (
+                            SELECT
+                                ri.id,
+                                ri.raw_text,
+                                COALESCE(i.display_name_ru, i.canonical_name) AS name_ru,
+                                i.calories_per_100g,
+                                i.price_per_100g_rub
+                            FROM recipe_ingredients ri
+                            JOIN ingredients i ON i.id = ri.ingredient_id
+                            WHERE ri.recipe_id = r.id
+                            ORDER BY ri.id
+                            LIMIT 8
+                        ) AS ingredient_row
+                    ) AS jsonb),
+                    '[]'::jsonb
+                ) AS ingredient_details
+            FROM recipes r
+            WHERE (:has_excluded = FALSE OR r.id <> ALL(:excluded_recipe_ids))
+            ORDER BY
+                CASE WHEN r.calories IS NULL THEN 1 ELSE 0 END,
+                r.rating DESC NULLS LAST,
+                r.id DESC
+            LIMIT :limit
+            """
+        ),
+        {
+            "excluded_recipe_ids": excluded_ids or [0],
+            "has_excluded": bool(excluded_ids),
+            "limit": limit,
+        },
+    ).mappings()
+
+    return [
+        {
+            "id": row["id"],
+            "source": row["source"],
+            "source_recipe_id": row["source_recipe_id"],
+            "title": row["title"],
+            "description": row["description"],
+            "cooking_steps": list(row["cooking_steps"] or []),
+            "total_minutes": row["total_minutes"],
+            "calories": float(row["calories"]) if row["calories"] is not None else None,
+            "protein": float(row["protein"]) if row["protein"] is not None else None,
+            "fat": float(row["fat"]) if row["fat"] is not None else None,
+            "carbs": float(row["carbs"]) if row["carbs"] is not None else None,
+            "estimated_cost_rub": (
+                float(row["estimated_cost_rub"])
+                if row["estimated_cost_rub"] is not None
+                else None
+            ),
+            "ingredients": list(row["ingredients"] or []),
+            "ingredient_details": list(row["ingredient_details"] or []),
+            "predicted_rating": None,
+            "model_item_index": None,
+        }
+        for row in rows
+    ]
+
+
+def _normalize_preference_values(values) -> list[str]:
+    if not values:
+        return []
+    return [
+        str(value).strip().casefold()
+        for value in values
+        if str(value).strip()
+    ]
+
+
+def _safe_float(value) -> Optional[float]:
+    if value is None:
+        return None
+    return float(value)
+
+
+def _fetch_user_food_preferences(db: Session, user_id) -> dict[str, Any]:
+    row = db.execute(
+        text(
+            """
+            SELECT
+                favorite_products_json,
+                disliked_products_json,
+                allergies_json,
+                daily_budget_rub,
+                weekly_budget_rub,
+                daily_calorie_target,
+                meals_per_day
+            FROM user_profiles
+            WHERE user_id = :user_id
+            """
+        ),
+        {"user_id": user_id},
+    ).mappings().first()
+
+    if row is None:
+        return {
+            "favorite_products": [],
+            "disliked_products": [],
+            "allergies": [],
+            "daily_budget_rub": None,
+            "weekly_budget_rub": None,
+            "daily_calorie_target": None,
+            "meals_per_day": None,
+        }
+
+    return {
+        "favorite_products": _normalize_preference_values(row["favorite_products_json"]),
+        "disliked_products": _normalize_preference_values(row["disliked_products_json"]),
+        "allergies": _normalize_preference_values(row["allergies_json"]),
+        "daily_budget_rub": _safe_float(row["daily_budget_rub"]),
+        "weekly_budget_rub": _safe_float(row["weekly_budget_rub"]),
+        "daily_calorie_target": _safe_float(row["daily_calorie_target"]),
+        "meals_per_day": int(row["meals_per_day"]) if row["meals_per_day"] else None,
+    }
+
+
+def _recipe_text_for_matching(recipe: dict) -> str:
+    values = [
+        recipe.get("title"),
+        recipe.get("description"),
+        *(recipe.get("ingredients") or []),
+    ]
+    for ingredient in recipe.get("ingredient_details") or []:
+        if isinstance(ingredient, dict):
+            values.extend([ingredient.get("raw_text"), ingredient.get("name_ru")])
+    return " ".join(str(value) for value in values if value).casefold()
+
+
+def _preference_score(recipe: dict, preferences: dict[str, Any]) -> int:
+    text_value = _recipe_text_for_matching(recipe)
+    if any(value in text_value for value in preferences["allergies"]):
+        return -10_000
+    if any(value in text_value for value in preferences["disliked_products"]):
+        return -1_000
+    if any(value in text_value for value in preferences["favorite_products"]):
+        return 100
+    return 0
+
+
+def _budget_per_recipe(preferences: dict[str, Any]) -> Optional[float]:
+    meals_per_day = int(preferences.get("meals_per_day") or 3)
+    meals_per_day = max(1, min(meals_per_day, 6))
+
+    daily_budget = preferences.get("daily_budget_rub")
+    if daily_budget:
+        return round(float(daily_budget) / meals_per_day, 2)
+
+    weekly_budget = preferences.get("weekly_budget_rub")
+    if weekly_budget:
+        return round(float(weekly_budget) / 7 / meals_per_day, 2)
+
+    return None
+
+
+def _has_any_match(recipe: dict, values: list[str]) -> bool:
+    if not values:
+        return False
+    text_value = _recipe_text_for_matching(recipe)
+    return any(value in text_value for value in values)
+
+
+def _build_recommendation_reasons(
+    recipe: dict,
+    preferences: dict[str, Any],
+) -> list[str]:
+    reasons: list[str] = []
+
+    if _has_any_match(recipe, preferences.get("favorite_products", [])):
+        reasons.append("Есть любимые продукты")
+
+    if preferences.get("allergies") and not _has_any_match(
+        recipe,
+        preferences["allergies"],
+    ):
+        reasons.append("Не найдено выбранных аллергенов")
+
+    if preferences.get("disliked_products") and not _has_any_match(
+        recipe,
+        preferences["disliked_products"],
+    ):
+        reasons.append("Без нелюбимых продуктов")
+
+    budget_per_recipe = _budget_per_recipe(preferences)
+    estimated_cost = recipe.get("estimated_cost_rub")
+    if budget_per_recipe and estimated_cost is not None:
+        if float(estimated_cost) <= budget_per_recipe:
+            reasons.append("Вписывается в бюджет")
+        else:
+            reasons.append("Выше бюджета, но близко по вкусу")
+
+    daily_calorie_target = preferences.get("daily_calorie_target")
+    meals_per_day = int(preferences.get("meals_per_day") or 3)
+    recipe_calories = recipe.get("calories")
+    if daily_calorie_target and recipe_calories is not None:
+        target_per_recipe = float(daily_calorie_target) / max(meals_per_day, 1)
+        if abs(float(recipe_calories) - target_per_recipe) <= target_per_recipe * 0.35:
+            reasons.append("Близко к цели по калориям")
+
+    total_minutes = recipe.get("total_minutes")
+    if total_minutes is not None and int(total_minutes) <= 30:
+        reasons.append("Быстро готовится")
+
+    if recipe.get("protein") is not None and float(recipe["protein"]) >= 20:
+        reasons.append("Хороший источник белка")
+
+    predicted_rating = recipe.get("predicted_rating")
+    if predicted_rating is not None and float(predicted_rating) >= 4:
+        reasons.append("Высокая прогнозная оценка")
+
+    return reasons[:4]
+
+
+def _apply_food_preferences(items: list[dict], preferences: dict[str, Any]) -> list[dict]:
+    scored_items = []
+    for item in items:
+        score = _preference_score(item, preferences)
+        if score <= -10_000:
+            continue
+        scored_items.append((score, item))
+
+    scored_items.sort(
+        key=lambda pair: (
+            pair[0],
+            pair[1].get("predicted_rating") or 0,
+            -(pair[1].get("calories") or 0),
+        ),
+        reverse=True,
+    )
+    personalized_items = [item for _, item in scored_items]
+    for item in personalized_items:
+        item["recommendation_reasons"] = _build_recommendation_reasons(
+            item,
+            preferences,
+        )
+    return personalized_items
 
 
 def get_recommendations(
@@ -195,6 +529,7 @@ def get_recommendations(
     demo_user_index: Optional[int] = None,
 ) -> dict:
     artifact = get_foodcom_artifact()
+    preferences = _fetch_user_food_preferences(db, user_id)
 
     if demo_user_index is not None:
         scores = artifact.global_mean + artifact.item_biases + (
@@ -240,13 +575,16 @@ def get_recommendations(
                 "model_item_index": int(item_index),
             }
         )
-        if len(items) >= limit:
+        if len(items) >= max(limit * 3, limit):
             break
+
+    items = _apply_food_preferences(items, preferences)[:limit]
 
     return {
         "strategy": strategy,
         "items": items,
         "count": len(items),
+        "preference_profile": preferences,
     }
 
 
@@ -322,6 +660,7 @@ def generate_meal_plan(
     db: Session,
     user_id,
     limit: int = 4,
+    meals_per_day_override: Optional[int] = None,
 ) -> dict:
     profile = db.execute(
         text(
@@ -334,7 +673,8 @@ def generate_meal_plan(
                 activity_level,
                 goal,
                 daily_calorie_target,
-                meals_per_day
+                meals_per_day,
+                region_code
             FROM user_profiles
             WHERE user_id = :user_id
             """
@@ -342,7 +682,13 @@ def generate_meal_plan(
         {"user_id": user_id},
     ).fetchone()
 
-    meals_per_day = int(profile.meals_per_day) if profile and profile.meals_per_day else limit
+    meals_per_day = (
+        meals_per_day_override
+        if meals_per_day_override is not None
+        else int(profile.meals_per_day)
+        if profile and profile.meals_per_day
+        else limit
+    )
     meals_per_day = max(1, min(meals_per_day, 6))
 
     recommendation_payload = get_recommendations(
@@ -351,6 +697,19 @@ def generate_meal_plan(
         limit=max(meals_per_day * 6, 24),
     )
     candidates = recommendation_payload["items"]
+    if len(candidates) < meals_per_day:
+        existing_candidate_ids = [candidate["id"] for candidate in candidates]
+        candidates = _apply_food_preferences(
+            [
+            *candidates,
+            *_fetch_fallback_recipe_rows(
+                db=db,
+                excluded_recipe_ids=existing_candidate_ids,
+                limit=max(meals_per_day * 4, 12),
+            ),
+            ],
+            _fetch_user_food_preferences(db, user_id),
+        )
     daily_target = _estimate_daily_calorie_target(profile)
 
     meal_labels = _get_meal_labels(meals_per_day)
@@ -380,7 +739,18 @@ def generate_meal_plan(
                 best_score = score
 
         if best_recipe is None:
-            break
+            fallback_recipes = _apply_food_preferences(
+                _fetch_fallback_recipe_rows(
+                    db=db,
+                    excluded_recipe_ids=used_recipe_ids,
+                    limit=6,
+                ),
+                _fetch_user_food_preferences(db, user_id),
+            )
+            best_recipe = fallback_recipes[0] if fallback_recipes else None
+
+        if best_recipe is None:
+            continue
 
         used_recipe_ids.add(best_recipe["id"])
         meals.append(
@@ -408,14 +778,123 @@ def generate_meal_plan(
             sum(meal["recipe"].get("carbs") or 0 for meal in meals),
             1,
         ),
+        "estimated_cost_rub": round(
+            sum(meal["recipe"].get("estimated_cost_rub") or 0 for meal in meals),
+            1,
+        ),
     }
 
     return {
         "strategy": recommendation_payload["strategy"],
         "daily_target_calories": daily_target,
+        "regional_food_zone": get_region_food_zone(profile.region_code if profile else None),
+        "preference_profile": _fetch_user_food_preferences(db, user_id),
         "meals_per_day": meals_per_day,
         "meals": meals,
         "totals": totals,
+    }
+
+
+def _shopping_category_for_name(name: str) -> str:
+    normalized = name.casefold()
+    category_keywords = [
+        ("Мясо и птица", ["кур", "говя", "свин", "мяс"]),
+        ("Рыба", ["рыб", "лосос", "треск", "морепродукт"]),
+        ("Молочные продукты", ["молок", "кефир", "творог", "сметан", "сыр", "йогурт", "масло слив"]),
+        ("Крупы и хлеб", ["рис", "греч", "овся", "макарон", "мук", "хлеб", "паста"]),
+        ("Овощи", ["карто", "морков", "лук", "чеснок", "помид", "томат", "огур", "перец", "капуст", "кабач", "баклаж", "гриб", "шамп"]),
+        ("Фрукты и ягоды", ["яблок", "банан", "апельс", "лимон", "ягод"]),
+        ("Бобовые и орехи", ["фасол", "горох", "чечев", "орех", "миндал"]),
+        ("Бакалея и соусы", ["сахар", "соль", "масло", "майонез", "кетчуп", "мед", "мёд", "шоколад"]),
+    ]
+    for category, keywords in category_keywords:
+        if any(keyword in normalized for keyword in keywords):
+            return category
+    return "Прочее"
+
+
+def generate_shopping_list(
+    db: Session,
+    user_id,
+    days: int = 7,
+    meals_per_day_override: Optional[int] = None,
+) -> dict:
+    days = max(1, min(days, 7))
+    base_plan = generate_meal_plan(
+        db=db,
+        user_id=user_id,
+        meals_per_day_override=meals_per_day_override,
+    )
+
+    aggregated: dict[str, dict] = {}
+    for day_index in range(days):
+        meals = base_plan["meals"]
+        if meals:
+            rotated_meals = [
+                {
+                    **meal,
+                    "recipe": meals[(index + day_index) % len(meals)]["recipe"],
+                }
+                for index, meal in enumerate(meals)
+            ]
+        else:
+            rotated_meals = []
+
+        for meal in rotated_meals:
+            recipe = meal["recipe"]
+            for ingredient in recipe.get("ingredient_details") or []:
+                if not isinstance(ingredient, dict):
+                    continue
+                name = ingredient.get("name_ru") or ingredient.get("raw_text")
+                if not name:
+                    continue
+
+                key = str(name).strip().casefold()
+                price = ingredient.get("price_per_100g_rub")
+                calories = ingredient.get("calories_per_100g")
+                if key not in aggregated:
+                    aggregated[key] = {
+                        "id": key,
+                        "name": str(name).strip(),
+                        "category": _shopping_category_for_name(str(name)),
+                        "quantity": "100 г",
+                        "uses": 0,
+                        "estimated_cost_rub": 0,
+                        "calories_per_100g": calories,
+                        "recipes": set(),
+                    }
+
+                aggregated[key]["uses"] += 1
+                aggregated[key]["estimated_cost_rub"] += float(price or 0)
+                aggregated[key]["recipes"].add(recipe["title"])
+
+    items = []
+    for item in aggregated.values():
+        uses = int(item["uses"])
+        items.append(
+            {
+                "id": item["id"],
+                "name": item["name"],
+                "category": item["category"],
+                "quantity": f"{uses * 100} г",
+                "uses": uses,
+                "estimated_cost_rub": round(item["estimated_cost_rub"], 1),
+                "calories_per_100g": item["calories_per_100g"],
+                "recipes": sorted(item["recipes"])[:3],
+            }
+        )
+
+    items.sort(key=lambda item: (item["category"], item["name"]))
+    total_cost = round(sum(item["estimated_cost_rub"] for item in items), 1)
+
+    return {
+        "days": days,
+        "meals_per_day": base_plan["meals_per_day"],
+        "items": items,
+        "total_items": len(items),
+        "estimated_total_cost_rub": total_cost,
+        "regional_food_zone": base_plan.get("regional_food_zone"),
+        "preference_profile": base_plan.get("preference_profile"),
     }
 
 
@@ -434,6 +913,7 @@ def replace_meal(
     )
     excluded_ids = set(excluded_recipe_ids or [])
     excluded_ids.add(current_recipe_id)
+    preferences = _fetch_user_food_preferences(db, user_id)
 
     best_recipe = None
     best_score = None
@@ -450,6 +930,17 @@ def replace_meal(
         if best_score is None or score < best_score:
             best_recipe = candidate
             best_score = score
+
+    if best_recipe is None:
+        fallback_recipes = _apply_food_preferences(
+            _fetch_fallback_recipe_rows(
+                db=db,
+                excluded_recipe_ids=excluded_ids,
+                limit=6,
+            ),
+            preferences,
+        )
+        best_recipe = fallback_recipes[0] if fallback_recipes else None
 
     if best_recipe is None:
         raise ValueError("No replacement recipe available")
