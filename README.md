@@ -1,194 +1,122 @@
 # TastePlanner
 
-Веб-приложение для курсовой работы на тему: **«Цифровой помощник для планирования рациона на основе анализа предпочтений»**.
+Веб-приложение для планирования персонального рациона с учетом анкеты пользователя, бюджета, сезонности, аллергий, любимых и нелюбимых продуктов.
 
-## Описание проекта
+## Что реализовано
 
-**TastePlanner** — это многостраничное веб-приложение, которое помогает пользователю формировать персональный рацион с учетом:
+- Авторизация и профиль пользователя.
+- Расширенная анкета: цель, активность, регион, бюджет, количество приемов пищи, предпочтения, аллергии.
+- Рекомендации рецептов на русском языке.
+- Расширенная карточка рецепта: способ приготовления, ингредиенты, стоимость, калории, источник и ML-оценки.
+- План питания на день и неделю.
+- Список покупок с группировкой продуктов и примерной стоимостью.
+- Сезонность продуктов и региональные зоны России.
+- Гибридная рекомендательная система:
+  - content-based filtering;
+  - cosine similarity / KNN-подход по векторам пользователя и блюд;
+  - модель предсказания вероятности лайка;
+  - оптимизация распределения блюд по приемам пищи через `scipy.optimize`.
+- Страница `/readiness` для проверки готовности данных, обратной связи и модели.
 
-- целей питания;
-- вкусовых предпочтений;
-- нелюбимых продуктов;
-- аллергий и ограничений;
-- уровня активности;
-- бюджета;
-- количества приемов пищи.
+## Технологии
 
-На текущем этапе реализован пользовательский интерфейс MVP на **React**.
+- Frontend: React, Vite, React Router, Tailwind CSS.
+- Backend: FastAPI, SQLAlchemy, PostgreSQL.
+- ML/Data: pandas, numpy, scikit-learn, joblib, scipy.
+- Опционально для модели: CatBoost или XGBoost, если установлены в окружении.
 
-## Реализованные страницы
+## Запуск backend
 
-- **Главная страница**
-- **Страница входа / регистрации**
-- **Страница анкеты предпочтений**
-- **Страница плана питания**
-- **Страница списка покупок**
-- **Страница личного кабинета**
+```powershell
+cd D:\TastePlanner
+.\.venv\Scripts\python.exe -m uvicorn app.main:app --app-dir backend --host 127.0.0.1 --port 8000
+```
 
-## Используемые технологии
+Если команда запускается из папки `backend`, можно использовать:
 
-### Frontend
-- **React**
-- **Vite**
-- **React Router DOM**
-- **Tailwind CSS v4**
+```powershell
+cd D:\TastePlanner\backend
+..\.venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+```
 
-### Планируемый backend
-- **Python**
-- **FastAPI**
-- **PostgreSQL**
+## Запуск frontend
+
+```powershell
+cd D:\TastePlanner\frontend
+npm install
+npm run dev
+```
+
+Обычно приложение доступно на `http://localhost:5173/`.
+
+## Подготовка данных и обучение модели
+
+Полный пайплайн подготовки данных и переобучения:
+
+```powershell
+cd D:\TastePlanner
+.\.venv\Scripts\python.exe scripts\retrain_recommender.py
+```
+
+Скрипт последовательно:
+
+1. Импортирует curated Russian recipes.
+2. Обновляет признаки рецептов.
+3. Генерирует bootstrap-обратную связь.
+4. Экспортирует training dataset.
+5. Делит данные на train / validation / test.
+6. Обучает content-based ranker.
+7. Считает baseline.
+8. Генерирует графики обучения через matplotlib.
+9. Обновляет data quality report.
+
+Основные артефакты:
+
+- `artifacts/recommender/tasteplanner_content_ranker.joblib`
+- `artifacts/recommender/tasteplanner_content_ranker_report.json`
+- `artifacts/recommender/retrain_summary.json`
+- `artifacts/recommender/training_plots/`
+- `artifacts/training/tasteplanner_training_dataset.csv`
+- `artifacts/training/tasteplanner_data_quality_report.json`
+
+Если нужно переобучить только модель без повторного импорта рецептов:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\retrain_recommender.py --skip-import
+```
+
+Если CatBoost или XGBoost не установлены, режим `--model auto` использует sklearn-модель.
+
+Отдельно пересоздать только графики обучения:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\generate_training_plots.py
+```
+
+## Проверки
+
+Backend и scripts:
+
+```powershell
+cd D:\TastePlanner
+.\.venv\Scripts\python.exe -m py_compile backend\app\api\recommendations.py scripts\retrain_recommender.py scripts\train_content_based_ranker.py
+```
+
+Frontend:
+
+```powershell
+cd D:\TastePlanner\frontend
+npm run lint
+npm run build
+```
 
 ## Структура проекта
 
-```bash
-frontend/
-├── public/
-├── src/
-│   ├── components/
-│   │   └── Navbar.jsx
-│   ├── pages/
-│   │   ├── AuthPage.jsx
-│   │   ├── HomePage.jsx
-│   │   ├── MealPlanPage.jsx
-│   │   ├── OnboardingPage.jsx
-│   │   ├── ProfilePage.jsx
-│   │   └── ShoppingListPage.jsx
-│   ├── App.jsx
-│   ├── index.css
-│   └── main.jsx
-├── package.json
-├── vite.config.js
-└── README.md
+```text
+backend/      FastAPI backend, API, модели БД, сервис рекомендаций
+frontend/     React frontend
+scripts/      импорт данных, построение признаков, обучение и отчеты
+postgress/    SQL-миграции и схема
+datasets/     локальные CSV-датасеты
+artifacts/    обучающие выборки, отчеты и ML-модель
 ```
-
-## Требования для запуска
-
-Перед запуском необходимо установить:
-
-- **Node.js**
-- **npm**
-
-Проверить установку можно командами:
-
-```bash
-node -v
-npm -v
-```
-
-## Установка и запуск проекта
-
-### 1. Перейти в папку проекта
-
-```bash
-cd frontend
-```
-
-### 2. Установить зависимости
-
-```bash
-npm install
-```
-
-### 3. Запустить проект в режиме разработки
-
-```bash
-npm run dev
-```
-
-После запуска в терминале появится локальный адрес, например:
-
-```bash
-http://localhost:5173/
-```
-
-Открой его в браузере.
-
-## Установка дополнительных зависимостей
-
-Если проект создается с нуля, могут понадобиться дополнительные библиотеки:
-
-### React Router
-```bash
-npm install react-router-dom
-```
-
-### Tailwind CSS v4 для Vite
-```bash
-npm install tailwindcss @tailwindcss/vite
-```
-
-## Настройка Tailwind CSS v4
-
-### `vite.config.js`
-
-```js
-import { defineConfig } from 'vite'
-import react from '@vitejs/plugin-react'
-import tailwindcss from '@tailwindcss/vite'
-
-export default defineConfig({
-  plugins: [react(), tailwindcss()],
-})
-```
-
-### `src/index.css`
-
-```css
-@import "tailwindcss";
-```
-
-## Возможные ошибки и решения
-
-### 1. Ошибка PowerShell: выполнение сценариев отключено
-
-Если при запуске `npm` возникает ошибка в PowerShell, выполните:
-
-```powershell
-Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
-```
-
-После этого подтвердите действие клавишей `Y`.
-
-### 2. Ошибка `Missing script: "dev"`
-
-Эта ошибка означает, что команда запускается не из папки проекта. Нужно перейти в директорию, где находится `package.json`:
-
-```bash
-cd frontend
-npm run dev
-```
-
-### 3. Ошибка с Tailwind `could not determine executable to run`
-
-Для **Tailwind CSS v4** не требуется команда:
-
-```bash
-npx tailwindcss init -p
-```
-
-Вместо этого нужно установить:
-
-```bash
-npm install tailwindcss @tailwindcss/vite
-```
-
-И подключить Tailwind через `vite.config.js`.
-
-## Перспективы развития проекта
-
-В дальнейшем приложение можно расширить следующими возможностями:
-
-- подключение backend на **FastAPI**;
-- работа с базой данных **PostgreSQL**;
-- сохранение профиля пользователя;
-- генерация персонального рациона на основе анкеты;
-- хранение истории питания;
-- рекомендации по рецептам;
-- расчет КБЖУ в реальном времени;
-- адаптация меню на основе обратной связи пользователя.
-
-## Автор
-
-Проект разработан в рамках курсовой работы по теме:
-
-**«Цифровой помощник для планирования рациона на основе анализа предпочтений»**

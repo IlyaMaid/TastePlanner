@@ -12,6 +12,11 @@ CREATE TABLE user_profiles (
     ),
     region_code TEXT,
     daily_calorie_target NUMERIC(7,2),
+    daily_budget_rub NUMERIC(10,2),
+    weekly_budget_rub NUMERIC(10,2),
     meals_per_day INT DEFAULT 3,
+    favorite_products_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+    disliked_products_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+    allergies_json JSONB NOT NULL DEFAULT '[]'::jsonb,
     updated_at TIMESTAMP NOT NULL DEFAULT NOW()
 );

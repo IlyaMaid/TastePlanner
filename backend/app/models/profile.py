@@ -2,6 +2,7 @@ from datetime import datetime
 
 from sqlalchemy import Column, DateTime, ForeignKey, Integer, Numeric, Text
 from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB
 
 from app.core.database import Base
 
@@ -18,7 +19,12 @@ class Profile(Base):
     goal = Column(Text, nullable=True)
     region_code = Column(Text, nullable=True)
     daily_calorie_target = Column(Numeric, nullable=True)
+    daily_budget_rub = Column(Numeric, nullable=True)
+    weekly_budget_rub = Column(Numeric, nullable=True)
     meals_per_day = Column(Integer, nullable=True)
+    favorite_products_json = Column(JSONB, nullable=False, default=list)
+    disliked_products_json = Column(JSONB, nullable=False, default=list)
+    allergies_json = Column(JSONB, nullable=False, default=list)
     updated_at = Column(
         DateTime,
         default=datetime.utcnow,

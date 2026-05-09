@@ -2,16 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { fetchMyProfile } from "../lib/profile";
-
-const REGION_LABELS = {
-  "RU-MOW": "Москва",
-  "RU-SPE": "Санкт-Петербург",
-  "RU-MOS": "Московская область",
-  "RU-KDA": "Краснодарский край",
-  "RU-SVE": "Свердловская область",
-  "RU-TA": "Республика Татарстан",
-  "RU-NVS": "Новосибирская область",
-};
+import { fetchReadiness } from "../lib/recommendations";
+import { formatRegion, getFoodZoneByRegion } from "../lib/regions";
 
 function InfoCard({ label, value }) {
   return (
@@ -20,6 +12,36 @@ function InfoCard({ label, value }) {
       <p className="mt-1 font-semibold text-slate-900">{value}</p>
     </div>
   );
+}
+
+function formatList(value) {
+  return Array.isArray(value) && value.length > 0 ? value.join(", ") : "Не выбрано";
+}
+
+function formatCurrency(value, period) {
+  if (value == null) {
+    return "Не указан";
+  }
+
+  return `${Number(value).toLocaleString("ru-RU", {
+    maximumFractionDigits: 0,
+  })} ₽ ${period}`;
+}
+
+function formatBudgetSummary(profile) {
+  if (profile?.daily_budget_rub != null) {
+    return formatCurrency(profile.daily_budget_rub, "в день");
+  }
+
+  if (profile?.weekly_budget_rub != null) {
+    return formatCurrency(profile.weekly_budget_rub, "в неделю");
+  }
+
+  return "Не указан";
+}
+
+function formatPercent(value) {
+  return `${Math.round(Number(value || 0) * 100)}%`;
 }
 
 function formatGoal(goal) {
@@ -51,16 +73,9 @@ function formatSex(value) {
   return map[value] ?? "Не указан";
 }
 
-function formatRegion(value) {
-  if (!value) {
-    return "Не выбран";
-  }
-
-  return REGION_LABELS[value] ?? value;
-}
-
 export default function ProfilePage({ authSession }) {
   const [profile, setProfile] = useState(null);
+  const [readiness, setReadiness] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
 
@@ -77,8 +92,15 @@ export default function ProfilePage({ authSession }) {
 
       try {
         const data = await fetchMyProfile(authSession.accessToken);
+        let readinessData = null;
+        try {
+          readinessData = await fetchReadiness(authSession.accessToken);
+        } catch {
+          readinessData = null;
+        }
         if (isActive) {
           setProfile(data);
+          setReadiness(readinessData);
           setErrorMessage("");
         }
       } catch (error) {
@@ -110,7 +132,9 @@ export default function ProfilePage({ authSession }) {
     { label: "Email", value: email },
     { label: "Цель", value: formatGoal(profile?.goal) },
     { label: "Активность", value: formatActivity(profile?.activity_level) },
+    { label: "Бюджет", value: formatBudgetSummary(profile) },
   ];
+  const foodZone = getFoodZoneByRegion(profile?.region_code);
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900">
@@ -203,8 +227,36 @@ export default function ProfilePage({ authSession }) {
                     value={profile?.meals_per_day ?? "Не указано"}
                   />
                   <InfoCard
+                    label="Бюджет на день"
+                    value={formatCurrency(profile?.daily_budget_rub, "в день")}
+                  />
+                  <InfoCard
+                    label="Бюджет на неделю"
+                    value={formatCurrency(profile?.weekly_budget_rub, "в неделю")}
+                  />
+                  <InfoCard
                     label="Регион"
                     value={formatRegion(profile?.region_code)}
+                  />
+                  <InfoCard
+                    label="Пищевая зона"
+                    value={foodZone?.name ?? "Не выбрана"}
+                  />
+                  <InfoCard
+                    label="Типичные продукты"
+                    value={foodZone?.products.join(", ") ?? "Нет данных"}
+                  />
+                  <InfoCard
+                    label="Любимые продукты"
+                    value={formatList(profile?.favorite_products_json)}
+                  />
+                  <InfoCard
+                    label="Нелюбимые продукты"
+                    value={formatList(profile?.disliked_products_json)}
+                  />
+                  <InfoCard
+                    label="Аллергии"
+                    value={formatList(profile?.allergies_json)}
                   />
                 </div>
               )}
@@ -229,6 +281,64 @@ export default function ProfilePage({ authSession }) {
                 ))}
               </div>
             </div>
+
+            {readiness ? (
+              <div className="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+                <div className="flex items-center justify-between gap-4">
+                  <h2 className="text-xl font-semibold">Данные для подбора</h2>
+                  <strong className="text-2xl text-emerald-700">
+                    {readiness.profile_completion_percent}%
+                  </strong>
+                </div>
+
+                <div className="mt-5 h-3 overflow-hidden rounded-full bg-slate-100">
+                  <div
+                    className="h-full rounded-full bg-emerald-500"
+                    style={{ width: `${readiness.profile_completion_percent}%` }}
+                  />
+                </div>
+
+                <div className="mt-5 grid grid-cols-2 gap-3 text-sm">
+                  <div className="rounded-2xl bg-slate-50 px-4 py-3">
+                    <p className="text-slate-500">Оценок</p>
+                    <p className="mt-1 font-semibold text-slate-900">
+                      {readiness.feedback.total}
+                    </p>
+                  </div>
+                  <div className="rounded-2xl bg-slate-50 px-4 py-3">
+                    <p className="text-slate-500">С причинами</p>
+                    <p className="mt-1 font-semibold text-slate-900">
+                      {readiness.feedback.reasoned_count}
+                    </p>
+                  </div>
+                  <div className="rounded-2xl bg-slate-50 px-4 py-3">
+                    <p className="text-slate-500">Рецептов</p>
+                    <p className="mt-1 font-semibold text-slate-900">
+                      {readiness.dataset.recipe_features_count ||
+                        readiness.dataset.recipes_count}
+                    </p>
+                  </div>
+                  <div className="rounded-2xl bg-slate-50 px-4 py-3">
+                    <p className="text-slate-500">Покрытие цен</p>
+                    <p className="mt-1 font-semibold text-slate-900">
+                      {formatPercent(readiness.dataset.avg_price_coverage)}
+                    </p>
+                  </div>
+                  <div className="rounded-2xl bg-slate-50 px-4 py-3">
+                    <p className="text-slate-500">Алиасов продуктов</p>
+                    <p className="mt-1 font-semibold text-slate-900">
+                      {readiness.dataset.ingredient_aliases_count}
+                    </p>
+                  </div>
+                  <div className="rounded-2xl bg-slate-50 px-4 py-3">
+                    <p className="text-slate-500">Учебных реакций</p>
+                    <p className="mt-1 font-semibold text-slate-900">
+                      {readiness.dataset.bootstrap_feedback_count}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            ) : null}
 
             <div className="rounded-3xl bg-slate-900 p-6 text-white shadow-sm">
               <h2 className="text-xl font-semibold">Быстрые действия</h2>

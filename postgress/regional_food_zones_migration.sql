@@ -1,18 +1,8 @@
-CREATE TABLE seasons (
-    id SERIAL PRIMARY KEY,
-    code TEXT UNIQUE NOT NULL,     -- spring, summer, autumn, winter
-    name_ru TEXT NOT NULL
-);
+ALTER TABLE regions
+    ADD COLUMN IF NOT EXISTS federal_district TEXT,
+    ADD COLUMN IF NOT EXISTS food_zone_code TEXT;
 
-CREATE TABLE regions (
-    code TEXT PRIMARY KEY,         -- LV, RU, EU_NORTH ...
-    name_ru TEXT NOT NULL,
-    climate_zone TEXT,
-    federal_district TEXT,
-    food_zone_code TEXT
-);
-
-CREATE TABLE food_zones (
+CREATE TABLE IF NOT EXISTS food_zones (
     code TEXT PRIMARY KEY,
     name_ru TEXT NOT NULL,
     summary_ru TEXT NOT NULL,

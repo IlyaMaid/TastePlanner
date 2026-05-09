@@ -17,6 +17,9 @@ class Settings(BaseSettings):
             "http://127.0.0.1:5173",
         ]
     )
+    cors_origin_regex: str = (
+        r"^https?://(localhost|127\.0\.0\.1|\[::1\]):\d+$"
+    )
 
     model_config = SettingsConfigDict(
         env_file=".env",

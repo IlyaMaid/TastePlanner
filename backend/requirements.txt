@@ -4,6 +4,7 @@ python-dotenv
 pydantic
 pydantic-settings
 pandas
+matplotlib
 scikit-learn
 joblib
 deep-translator
