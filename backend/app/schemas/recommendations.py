@@ -20,6 +20,7 @@ class MealSwapRequest(BaseModel):
     current_recipe_id: int = Field(gt=0)
     target_calories: Optional[float] = Field(default=None, ge=0)
     excluded_recipe_ids: list[int] = Field(default_factory=list)
+    mode: str = Field(default="balanced", pattern="^(balanced|cheaper|faster|lighter)$")
 
 
 class UserEventRequest(BaseModel):

@@ -1,6 +1,7 @@
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Navbar from "./components/Navbar";
+import Toast from "./components/Toast";
 import HomePage from "./pages/HomePage";
 import AuthPage from "./pages/AuthPage";
 import OnboardingPage from "./pages/OnboardingPage";
@@ -10,6 +11,7 @@ import ShoppingListPage from "./pages/ShoppingListPage";
 import ProfilePage from "./pages/ProfilePage";
 import RecipesPage from "./pages/RecipesPage";
 import FavoritesPage from "./pages/FavoritesPage";
+import ReadinessPage from "./pages/ReadinessPage";
 import {
   createAuthSession,
   fetchCurrentUser,
@@ -56,6 +58,7 @@ export default function App() {
     const savedFavorites = localStorage.getItem(FAVORITES_STORAGE_KEY);
     return savedFavorites ? JSON.parse(savedFavorites) : [];
   });
+  const [toast, setToast] = useState(null);
 
   const isAuthenticated = Boolean(authSession?.accessToken);
   const accessToken = authSession?.accessToken;
@@ -72,6 +75,19 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem(FAVORITES_STORAGE_KEY, JSON.stringify(favorites));
   }, [favorites]);
+
+  useEffect(() => {
+    if (!toast) {
+      return undefined;
+    }
+
+    const timeoutId = window.setTimeout(() => setToast(null), 3200);
+    return () => window.clearTimeout(timeoutId);
+  }, [toast]);
+
+  const notify = useCallback((nextToast) => {
+    setToast(nextToast);
+  }, []);
 
   useEffect(() => {
     let isActive = true;
@@ -128,11 +144,13 @@ export default function App() {
   const handleAuthSuccess = (session) => {
     setAuthSession(session);
     setIsAuthReady(true);
+    notify({ title: "Вы вошли", message: "Профиль готов к работе." });
   };
 
   const handleLogout = () => {
     setAuthSession(null);
     setIsAuthReady(true);
+    notify({ title: "Вы вышли", message: "Сессия завершена." });
   };
 
   const toggleFavorite = (recipe) => {
@@ -140,9 +158,11 @@ export default function App() {
       const exists = prev.some((item) => item.id === recipe.id);
 
       if (exists) {
+        notify({ title: "Убрано из избранного", message: recipe.title });
         return prev.filter((item) => item.id !== recipe.id);
       }
 
+      notify({ title: "Добавлено в избранное", message: recipe.title });
       return [...prev, recipe];
     });
   };
@@ -153,7 +173,18 @@ export default function App() {
         <Navbar isAuthenticated={isAuthenticated} onLogout={handleLogout} />
 
         <Routes>
-          <Route path="/" element={<HomePage />} />
+          <Route
+            path="/"
+            element={
+              <HomePage
+                authSession={authSession}
+                isAuthenticated={isAuthenticated}
+                isAuthReady={isAuthReady}
+                favorites={favorites}
+                notify={notify}
+              />
+            }
+          />
 
           <Route
             path="/auth"
@@ -173,7 +204,7 @@ export default function App() {
                 isAuthenticated={isAuthenticated}
                 isAuthReady={isAuthReady}
               >
-                <OnboardingPage authSession={authSession} />
+                <OnboardingPage authSession={authSession} notify={notify} />
               </ProtectedRoute>
             }
           />
@@ -185,7 +216,7 @@ export default function App() {
                 isAuthenticated={isAuthenticated}
                 isAuthReady={isAuthReady}
               >
-                <MealPlanPage authSession={authSession} />
+                <MealPlanPage authSession={authSession} notify={notify} />
               </ProtectedRoute>
             }
           />
@@ -197,7 +228,7 @@ export default function App() {
                 isAuthenticated={isAuthenticated}
                 isAuthReady={isAuthReady}
               >
-                <WeeklyMealPlanPage authSession={authSession} />
+                <WeeklyMealPlanPage authSession={authSession} notify={notify} />
               </ProtectedRoute>
             }
           />
@@ -209,7 +240,7 @@ export default function App() {
                 isAuthenticated={isAuthenticated}
                 isAuthReady={isAuthReady}
               >
-                <ShoppingListPage authSession={authSession} />
+                <ShoppingListPage authSession={authSession} notify={notify} />
               </ProtectedRoute>
             }
           />
@@ -221,7 +252,7 @@ export default function App() {
                 isAuthenticated={isAuthenticated}
                 isAuthReady={isAuthReady}
               >
-                <ProfilePage authSession={authSession} />
+                <ProfilePage authSession={authSession} notify={notify} />
               </ProtectedRoute>
             }
           />
@@ -237,6 +268,7 @@ export default function App() {
                   authSession={authSession}
                   favorites={favorites}
                   toggleFavorite={toggleFavorite}
+                  notify={notify}
                 />
               </ProtectedRoute>
             }
@@ -256,7 +288,20 @@ export default function App() {
               </ProtectedRoute>
             }
           />
+
+          <Route
+            path="/readiness"
+            element={
+              <ProtectedRoute
+                isAuthenticated={isAuthenticated}
+                isAuthReady={isAuthReady}
+              >
+                <ReadinessPage authSession={authSession} />
+              </ProtectedRoute>
+            }
+          />
         </Routes>
+        <Toast toast={toast} onClose={() => setToast(null)} />
       </div>
     </BrowserRouter>
   );

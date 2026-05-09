@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sys
 from pathlib import Path
 from typing import Optional
 
@@ -11,6 +12,12 @@ from sqlalchemy import create_engine, text
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from scripts.build_recipe_features import ensure_schema as ensure_recipe_features_schema
+from scripts.build_recipe_features import refresh_recipe_features
+
 DEFAULT_OUTPUT_PATH = PROJECT_ROOT / "artifacts/training/tasteplanner_training_dataset.csv"
 
 
@@ -34,7 +41,7 @@ def resolve_db_url(db_url: Optional[str]) -> str:
     )
 
 
-def ensure_schema(conn) -> None:
+def ensure_schema(conn, refresh_features: bool = True) -> None:
     for migration_name in (
         "profile_budget_migration.sql",
         "feedback_training_signals_migration.sql",
@@ -42,6 +49,9 @@ def ensure_schema(conn) -> None:
         migration_path = PROJECT_ROOT / "postgress" / migration_name
         if migration_path.exists():
             conn.execute(text(migration_path.read_text(encoding="utf-8")))
+    ensure_recipe_features_schema(conn)
+    if refresh_features:
+        refresh_recipe_features(conn)
 
 
 def json_for_csv(value) -> str:
@@ -52,23 +62,18 @@ def json_for_csv(value) -> str:
     return json.dumps(value, ensure_ascii=False)
 
 
-def export_training_dataset(db_url: str, output_path: Path, limit: Optional[int]) -> int:
+def export_training_dataset(
+    db_url: str,
+    output_path: Path,
+    limit: Optional[int],
+    refresh_features: bool = True,
+) -> int:
     engine = create_engine(db_url)
     limit_clause = "LIMIT :limit" if limit else ""
 
     query = text(
         f"""
-        WITH recipe_costs AS (
-            SELECT
-                ri.recipe_id,
-                COUNT(*) AS ingredient_count,
-                ROUND(SUM(i.price_per_100g_rub), 2) AS estimated_cost_rub,
-                COUNT(*) FILTER (WHERE i.price_per_100g_rub IS NOT NULL) AS priced_ingredient_count
-            FROM recipe_ingredients ri
-            LEFT JOIN ingredients i ON i.id = ri.ingredient_id
-            GROUP BY ri.recipe_id
-        ),
-        event_features AS (
+        WITH event_features AS (
             SELECT
                 user_id,
                 recipe_id,
@@ -80,9 +85,31 @@ def export_training_dataset(db_url: str, output_path: Path, limit: Optional[int]
             FROM user_events
             WHERE recipe_id IS NOT NULL
             GROUP BY user_id, recipe_id
+        ),
+        profile_features AS (
+            SELECT
+                up.*,
+                CASE
+                    WHEN up.daily_budget_rub IS NOT NULL THEN up.daily_budget_rub
+                    WHEN up.weekly_budget_rub IS NOT NULL THEN ROUND(up.weekly_budget_rub / 7, 2)
+                    ELSE NULL
+                END AS effective_daily_budget_rub,
+                CASE
+                    WHEN up.meals_per_day IS NULL OR up.meals_per_day <= 0 THEN NULL
+                    WHEN up.daily_budget_rub IS NOT NULL THEN ROUND(up.daily_budget_rub / up.meals_per_day, 2)
+                    WHEN up.weekly_budget_rub IS NOT NULL THEN ROUND(up.weekly_budget_rub / 7 / up.meals_per_day, 2)
+                    ELSE NULL
+                END AS budget_per_meal_rub,
+                CASE
+                    WHEN up.meals_per_day IS NULL OR up.meals_per_day <= 0 THEN NULL
+                    WHEN up.daily_calorie_target IS NOT NULL THEN ROUND(up.daily_calorie_target / up.meals_per_day, 2)
+                    ELSE NULL
+                END AS calorie_target_per_meal
+            FROM user_profiles up
         )
         SELECT
             urf.user_id::text AS user_id,
+            CASE WHEN u.email LIKE 'bootstrap.%@tasteplanner.local' THEN TRUE ELSE FALSE END AS is_bootstrap_user,
             urf.recipe_id,
             CASE
                 WHEN urf.rating IS NOT NULL THEN urf.rating::float
@@ -98,57 +125,97 @@ def export_training_dataset(db_url: str, output_path: Path, limit: Optional[int]
             urf.too_many_calories,
             urf.not_enough_calories,
             urf.updated_at AS feedback_updated_at,
-            up.sex,
-            up.age,
-            up.height_cm,
-            up.weight_kg,
-            up.activity_level,
-            up.goal,
-            up.region_code,
-            up.daily_calorie_target,
-            up.daily_budget_rub,
-            up.weekly_budget_rub,
-            up.meals_per_day,
-            up.favorite_products_json,
-            up.disliked_products_json,
-            up.allergies_json,
-            r.source,
-            r.source_recipe_id,
-            COALESCE(r.translated_title, r.title) AS recipe_title,
-            r.total_minutes,
-            r.calories,
-            r.protein,
-            r.fat,
-            r.carbs,
-            r.rating AS source_rating,
-            COALESCE(rc.ingredient_count, 0) AS ingredient_count,
-            COALESCE(rc.priced_ingredient_count, 0) AS priced_ingredient_count,
-            rc.estimated_cost_rub,
+            pf.sex,
+            pf.age,
+            pf.height_cm,
+            pf.weight_kg,
+            pf.activity_level,
+            pf.goal,
+            pf.region_code,
+            pf.daily_calorie_target,
+            pf.daily_budget_rub,
+            pf.weekly_budget_rub,
+            pf.effective_daily_budget_rub,
+            pf.budget_per_meal_rub,
+            pf.calorie_target_per_meal,
+            pf.meals_per_day,
+            pf.favorite_products_json,
+            pf.disliked_products_json,
+            pf.allergies_json,
+            rf.source,
+            rf.source_recipe_id,
+            rf.title AS recipe_title,
+            rf.total_minutes,
+            rf.calories,
+            rf.protein,
+            rf.fat,
+            rf.carbs,
+            rf.source_rating,
+            rf.ingredient_count,
+            rf.priced_ingredient_count,
+            rf.price_coverage,
+            rf.estimated_cost_rub,
+            rf.canonical_ingredients_json,
+            rf.product_categories_json,
+            rf.has_meat,
+            rf.has_fish,
+            rf.has_dairy,
+            rf.has_grains,
+            rf.has_vegetables,
+            rf.has_fruit,
+            rf.has_legumes,
+            rf.has_nuts,
+            rf.has_pantry,
+            rf.budget_tier,
+            rf.time_tier,
+            rf.calorie_tier,
+            rf.protein_tier,
+            rf.seasonal_months_json,
+            rf.seasonal_ingredient_count,
+            EXTRACT(MONTH FROM CURRENT_DATE)::int AS current_month,
+            CASE
+                WHEN rf.seasonal_months_json
+                    @> to_jsonb(EXTRACT(MONTH FROM CURRENT_DATE)::int)
+                THEN TRUE
+                ELSE FALSE
+            END AS is_seasonal_now,
+            CASE
+                WHEN pf.budget_per_meal_rub IS NULL OR rf.estimated_cost_rub IS NULL THEN NULL
+                ELSE ROUND(rf.estimated_cost_rub / NULLIF(pf.budget_per_meal_rub, 0), 4)
+            END AS cost_to_budget_ratio,
+            CASE
+                WHEN pf.calorie_target_per_meal IS NULL OR rf.calories IS NULL THEN NULL
+                ELSE ROUND(rf.calories / NULLIF(pf.calorie_target_per_meal, 0), 4)
+            END AS calorie_to_target_ratio,
             COALESCE(ef.event_count, 0) AS event_count,
             COALESCE(ef.open_count, 0) AS open_count,
             COALESCE(ef.favorite_toggle_count, 0) AS favorite_toggle_count,
             COALESCE(ef.shopping_toggle_count, 0) AS shopping_toggle_count,
             ef.last_event_at
         FROM user_recipe_feedback urf
-        JOIN recipes r ON r.id = urf.recipe_id
-        LEFT JOIN user_profiles up ON up.user_id = urf.user_id
-        LEFT JOIN recipe_costs rc ON rc.recipe_id = urf.recipe_id
+        JOIN recipe_features rf ON rf.recipe_id = urf.recipe_id
+        LEFT JOIN users u ON u.id = urf.user_id
+        LEFT JOIN profile_features pf ON pf.user_id = urf.user_id
         LEFT JOIN event_features ef
             ON ef.user_id = urf.user_id
            AND ef.recipe_id = urf.recipe_id
+        WHERE rf.is_user_facing = TRUE
         ORDER BY urf.updated_at DESC NULLS LAST, urf.recipe_id
         {limit_clause}
         """
     )
 
     with engine.begin() as conn:
-        ensure_schema(conn)
+        ensure_schema(conn, refresh_features=refresh_features)
         df = pd.read_sql_query(query, conn, params={"limit": limit} if limit else None)
 
     for column in (
         "favorite_products_json",
         "disliked_products_json",
         "allergies_json",
+        "canonical_ingredients_json",
+        "product_categories_json",
+        "seasonal_months_json",
     ):
         if column in df.columns:
             df[column] = df[column].apply(json_for_csv)
@@ -163,6 +230,11 @@ def export_training_dataset(db_url: str, output_path: Path, limit: Optional[int]
                 "rows": int(len(df)),
                 "columns": list(df.columns),
                 "output": str(output_path),
+                "bootstrap_rows": int(
+                    df["is_bootstrap_user"].fillna(False).sum()
+                    if "is_bootstrap_user" in df.columns
+                    else 0
+                ),
             },
             ensure_ascii=False,
             indent=2,
@@ -180,13 +252,23 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--db-url", default=None)
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT_PATH)
     parser.add_argument("--limit", type=int, default=None)
+    parser.add_argument(
+        "--no-refresh-features",
+        action="store_true",
+        help="Do not rebuild recipe_features before exporting.",
+    )
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
     db_url = resolve_db_url(args.db_url)
-    rows = export_training_dataset(db_url, args.output, args.limit)
+    rows = export_training_dataset(
+        db_url,
+        args.output,
+        args.limit,
+        refresh_features=not args.no_refresh_features,
+    )
     print(f"Exported {rows} rows to {args.output}")
 
 

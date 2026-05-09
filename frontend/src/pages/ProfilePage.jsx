@@ -40,6 +40,10 @@ function formatBudgetSummary(profile) {
   return "Не указан";
 }
 
+function formatPercent(value) {
+  return `${Math.round(Number(value || 0) * 100)}%`;
+}
+
 function formatGoal(goal) {
   const map = {
     lose_weight: "Снижение веса",
@@ -310,13 +314,26 @@ export default function ProfilePage({ authSession }) {
                   <div className="rounded-2xl bg-slate-50 px-4 py-3">
                     <p className="text-slate-500">Рецептов</p>
                     <p className="mt-1 font-semibold text-slate-900">
-                      {readiness.dataset.recipes_count}
+                      {readiness.dataset.recipe_features_count ||
+                        readiness.dataset.recipes_count}
                     </p>
                   </div>
                   <div className="rounded-2xl bg-slate-50 px-4 py-3">
-                    <p className="text-slate-500">Продуктов с ценой</p>
+                    <p className="text-slate-500">Покрытие цен</p>
                     <p className="mt-1 font-semibold text-slate-900">
-                      {readiness.dataset.priced_products_count}
+                      {formatPercent(readiness.dataset.avg_price_coverage)}
+                    </p>
+                  </div>
+                  <div className="rounded-2xl bg-slate-50 px-4 py-3">
+                    <p className="text-slate-500">Алиасов продуктов</p>
+                    <p className="mt-1 font-semibold text-slate-900">
+                      {readiness.dataset.ingredient_aliases_count}
+                    </p>
+                  </div>
+                  <div className="rounded-2xl bg-slate-50 px-4 py-3">
+                    <p className="text-slate-500">Учебных реакций</p>
+                    <p className="mt-1 font-semibold text-slate-900">
+                      {readiness.dataset.bootstrap_feedback_count}
                     </p>
                   </div>
                 </div>

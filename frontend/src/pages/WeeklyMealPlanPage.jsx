@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 
+import { PageSkeleton } from "../components/Skeleton";
 import { fetchMyProfile } from "../lib/profile";
 import { fetchMealPlan } from "../lib/recommendations";
 
@@ -57,7 +58,26 @@ function calculateTotals(meals) {
   };
 }
 
-export default function WeeklyMealPlanPage({ authSession }) {
+function ReportTile({ label, value, hint, tone = "default" }) {
+  const className =
+    tone === "good"
+      ? "rounded-2xl bg-emerald-50 px-4 py-3 text-emerald-800 ring-1 ring-emerald-100"
+      : tone === "warn"
+        ? "rounded-2xl bg-amber-50 px-4 py-3 text-amber-800 ring-1 ring-amber-100"
+        : "rounded-2xl bg-slate-50 px-4 py-3 text-slate-700";
+
+  return (
+    <div className={className}>
+      <p className="text-xs font-semibold uppercase tracking-[0.08em] opacity-70">
+        {label}
+      </p>
+      <p className="mt-2 text-lg font-semibold">{value}</p>
+      {hint ? <p className="mt-1 text-sm leading-5 opacity-80">{hint}</p> : null}
+    </div>
+  );
+}
+
+export default function WeeklyMealPlanPage({ authSession, notify }) {
   const [basePlan, setBasePlan] = useState(null);
   const [profile, setProfile] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -86,13 +106,16 @@ export default function WeeklyMealPlanPage({ authSession }) {
         mealsPerDay: currentProfile.meals_per_day,
       });
       setBasePlan(payload);
+      if (!showFullLoader) {
+        notify?.({ title: "Неделя обновлена", message: "Отчет пересчитан." });
+      }
     } catch (error) {
       setErrorMessage(error.message || "Не удалось загрузить недельный план.");
     } finally {
       setIsLoading(false);
       setIsRefreshing(false);
     }
-  }, [accessToken]);
+  }, [accessToken, notify]);
 
   useEffect(() => {
     loadPlan(true);
@@ -140,6 +163,23 @@ export default function WeeklyMealPlanPage({ authSession }) {
   }, [weeklyPlan]);
   const regionalFoodZone = basePlan?.regional_food_zone;
   const weeklyBudget = profile?.weekly_budget_rub;
+  const avgDailyCost = weeklyPlan.length
+    ? weeklyTotals.estimated_cost_rub / weeklyPlan.length
+    : 0;
+  const avgDailyCalories = weeklyPlan.length
+    ? weeklyTotals.calories / weeklyPlan.length
+    : 0;
+  const uniqueRecipeCount = new Set(
+    weeklyPlan.flatMap((day) => day.meals.map((meal) => meal.recipe.id)),
+  ).size;
+  const totalMealCount = weeklyPlan.reduce((sum, day) => sum + day.meals.length, 0);
+  const varietyPercent =
+    totalMealCount > 0 ? Math.round((uniqueRecipeCount / totalMealCount) * 100) : 0;
+  const targetCalories = basePlan?.daily_target_calories;
+  const avgCalorieDelta =
+    targetCalories != null ? Math.round(avgDailyCalories - targetCalories) : null;
+  const isWeeklyOverBudget =
+    weeklyBudget != null && weeklyTotals.estimated_cost_rub > Number(weeklyBudget);
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900">
@@ -153,7 +193,7 @@ export default function WeeklyMealPlanPage({ authSession }) {
               План питания на неделю
             </h1>
             <p className="mt-3 max-w-2xl text-slate-600">
-              Здесь собран недельный обзор на базе текущего ML-плана дня, чтобы
+              Здесь собран недельный обзор на базе текущего плана дня, чтобы
               было удобнее смотреть рацион сразу по всем дням.
             </p>
             {!isLoading ? (
@@ -190,12 +230,7 @@ export default function WeeklyMealPlanPage({ authSession }) {
         ) : null}
 
         {isLoading ? (
-          <div className="rounded-3xl bg-white p-10 text-center shadow-sm ring-1 ring-slate-200">
-            <h2 className="text-2xl font-semibold">Собираем неделю...</h2>
-            <p className="mt-3 text-slate-600">
-              Сейчас подготовим рацион по дням недели.
-            </p>
-          </div>
+          <PageSkeleton rows={5} />
         ) : (
           <div className="grid gap-6 lg:grid-cols-[1.15fr_0.85fr]">
             <section className="space-y-6">
@@ -250,7 +285,62 @@ export default function WeeklyMealPlanPage({ authSession }) {
 
             <aside className="space-y-6">
               <div className="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
-                <h2 className="text-xl font-semibold">Сводка за неделю</h2>
+                <h2 className="text-xl font-semibold">Недельный отчет</h2>
+                <div className="mt-5 grid gap-3 sm:grid-cols-2">
+                  <ReportTile
+                    label="Средний день"
+                    value={`${formatNumber(avgDailyCalories, " ккал")}`}
+                    hint={
+                      avgCalorieDelta == null
+                        ? "Цель не указана"
+                        : avgCalorieDelta === 0
+                          ? "Ровно по цели"
+                          : `${avgCalorieDelta > 0 ? "+" : ""}${avgCalorieDelta} ккал к цели`
+                    }
+                    tone={
+                      avgCalorieDelta != null && Math.abs(avgCalorieDelta) <= 150
+                        ? "good"
+                        : "default"
+                    }
+                  />
+                  <ReportTile
+                    label="Средняя стоимость"
+                    value={`≈ ${formatNumber(avgDailyCost, " ₽")}`}
+                    hint="На один день питания"
+                  />
+                  <ReportTile
+                    label="Разнообразие"
+                    value={`${varietyPercent}%`}
+                    hint={`${uniqueRecipeCount} уникальных блюд из ${totalMealCount}`}
+                    tone={varietyPercent >= 60 ? "good" : "warn"}
+                  />
+                  <ReportTile
+                    label="Бюджет"
+                    value={
+                      weeklyBudget != null
+                        ? isWeeklyOverBudget
+                          ? "Выше бюджета"
+                          : "Вписывается"
+                        : "Не указан"
+                    }
+                    hint={
+                      weeklyBudget != null
+                        ? `Лимит ${formatNumber(weeklyBudget, " ₽")}`
+                        : "Можно заполнить в анкете"
+                    }
+                    tone={
+                      weeklyBudget == null
+                        ? "default"
+                        : isWeeklyOverBudget
+                          ? "warn"
+                          : "good"
+                    }
+                  />
+                </div>
+
+                <h3 className="mt-6 text-sm font-semibold uppercase tracking-[0.08em] text-slate-500">
+                  Сводка за неделю
+                </h3>
                 <div className="mt-5 space-y-3 text-sm">
                   <div className="flex items-center justify-between rounded-2xl bg-slate-50 px-4 py-3">
                     <span>Калории</span>

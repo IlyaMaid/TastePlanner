@@ -24,9 +24,17 @@ function formatNumber(value) {
   });
 }
 
+function formatPercent(value) {
+  if (value == null || Number.isNaN(Number(value))) {
+    return null;
+  }
+
+  return `${Math.round(Number(value) * 100)}%`;
+}
+
 function DetailBlock({ title, children }) {
   return (
-    <section className="rounded-2xl bg-slate-50 p-4">
+    <section className="rounded-2xl bg-slate-50 p-4 ring-1 ring-slate-100">
       <h3 className="text-sm font-semibold text-slate-950">{title}</h3>
       <div className="mt-3">{children}</div>
     </section>
@@ -35,13 +43,47 @@ function DetailBlock({ title, children }) {
 
 function Metric({ label, value }) {
   return (
-    <div className="rounded-2xl bg-slate-50 px-4 py-3">
+    <div className="flex min-h-20 flex-col justify-center rounded-2xl bg-slate-50 px-4 py-3 ring-1 ring-slate-100">
       <p className="text-xs font-medium uppercase tracking-[0.08em] text-slate-500">
         {label}
       </p>
-      <p className="mt-2 text-base font-semibold text-slate-950">{value}</p>
+      <p className="mt-2 break-words text-base font-semibold text-slate-950">
+        {value}
+      </p>
     </div>
   );
+}
+
+function sourceLabel(source) {
+  if (source === "curated_ru") {
+    return "Русский датасет";
+  }
+  if (source === "povarenok") {
+    return "Поварёнок";
+  }
+  return "Food.com";
+}
+
+function reasonDescription(reason) {
+  if (reason.includes("аллерген")) {
+    return "Блюдо не содержит выбранные аллергены и ограничения.";
+  }
+  if (reason.includes("бюджет")) {
+    return "Стоимость блюда подходит под указанный бюджет.";
+  }
+  if (reason.includes("сезон")) {
+    return "В рецепте есть продукты, актуальные для текущего сезона.";
+  }
+  if (reason.includes("Быстро")) {
+    return "Рецепт не требует много времени на приготовление.";
+  }
+  if (reason.includes("калор")) {
+    return "Калорийность близка к дневной цели пользователя.";
+  }
+  if (reason.includes("нелюбимых")) {
+    return "В составе не найдено продуктов из списка нелюбимых.";
+  }
+  return "Фактор учтен при итоговом ранжировании рекомендации.";
 }
 
 export default function RecipeCard({
@@ -64,6 +106,12 @@ export default function RecipeCard({
   const ingredients = recipe.ingredientsList ?? recipe.ingredientsPreview ?? [];
   const productDetails = recipe.productDetails ?? recipe.productDetailsPreview ?? [];
   const recommendationReasons = recipe.recommendationReasons ?? [];
+  const isSeasonalNow = Boolean(recipe.is_seasonal_now ?? recipe.isSeasonalNow);
+  const scoreMetrics = [
+    ["Сходство", formatPercent(recipe.contentSimilarity ?? recipe.content_similarity)],
+    ["Прогноз", formatPercent(recipe.predictedScore ?? recipe.predicted_score)],
+    ["Совпадение", formatPercent(recipe.finalScore ?? recipe.final_score)],
+  ].filter(([, value]) => value);
 
   const openRecipe = () => {
     if (!isOpen) {
@@ -116,6 +164,11 @@ export default function RecipeCard({
             <h2 className="line-clamp-2 text-xl font-semibold leading-tight text-slate-950">
               {recipe.title}
             </h2>
+            {isSeasonalNow ? (
+              <span className="mt-3 inline-flex rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700 ring-1 ring-emerald-100">
+                По сезону
+              </span>
+            ) : null}
           </div>
 
           {variant === "favorite-toggle" ? (
@@ -150,6 +203,19 @@ export default function RecipeCard({
           <Metric label="Стоимость" value={estimatedCost} />
           <Metric label="Время" value={recipe.metaLabel || "Нет данных"} />
         </div>
+
+        {recommendationReasons.length > 0 ? (
+          <div className="mt-4 flex flex-wrap gap-2">
+            {recommendationReasons.slice(0, 3).map((reason) => (
+              <span
+                key={reason}
+                className="rounded-full bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-600 ring-1 ring-slate-200"
+              >
+                {reason}
+              </span>
+            ))}
+          </div>
+        ) : null}
       </article>
 
       {isOpen ? (
@@ -161,7 +227,7 @@ export default function RecipeCard({
             role="dialog"
             aria-modal="true"
             aria-label={recipe.title}
-            className="w-full max-w-4xl rounded-3xl bg-white p-5 shadow-2xl ring-1 ring-slate-200 sm:p-8"
+            className="w-full max-w-5xl rounded-3xl bg-white p-5 shadow-2xl ring-1 ring-slate-200 sm:p-8"
             onClick={(event) => event.stopPropagation()}
           >
             <div className="flex items-start justify-between gap-4">
@@ -196,7 +262,7 @@ export default function RecipeCard({
               <Metric label="Время" value={recipe.metaLabel || "Нет данных"} />
               <Metric
                 label="Источник"
-                value={recipe.source === "povarenok" ? "Поварёнок" : "Food.com"}
+                value={sourceLabel(recipe.source)}
               />
             </div>
 
@@ -213,7 +279,36 @@ export default function RecipeCard({
               </div>
             ) : null}
 
-            <div className="mt-6 grid gap-4 lg:grid-cols-[0.9fr_1.1fr]">
+            {scoreMetrics.length > 0 ? (
+              <div className="mt-5 grid gap-3 sm:grid-cols-3">
+                {scoreMetrics.map(([label, value]) => (
+                  <Metric key={label} label={label} value={value} />
+                ))}
+              </div>
+            ) : null}
+
+            {recommendationReasons.length > 0 ? (
+              <div className="mt-5 rounded-2xl bg-emerald-50 p-4 ring-1 ring-emerald-100">
+                <h3 className="text-sm font-semibold text-emerald-950">
+                  Почему рекомендовано
+                </h3>
+                <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                  {recommendationReasons.map((reason) => (
+                    <div
+                      key={reason}
+                      className="rounded-2xl bg-white/80 px-4 py-3 text-sm"
+                    >
+                      <p className="font-semibold text-emerald-800">{reason}</p>
+                      <p className="mt-1 leading-5 text-emerald-900/70">
+                        {reasonDescription(reason)}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
+            <div className="mt-6 grid gap-4 lg:grid-cols-[0.95fr_1.05fr]">
               <div className="space-y-4">
                 <DetailBlock title="Ингредиенты">
                   {ingredients.length > 0 ? (

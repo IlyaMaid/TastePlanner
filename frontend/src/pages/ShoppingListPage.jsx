@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
+import { PageSkeleton } from "../components/Skeleton";
 import { fetchMyProfile } from "../lib/profile";
 import { fetchShoppingList, saveUserEvent } from "../lib/recommendations";
 
@@ -19,7 +20,7 @@ function loadBoughtMap() {
   }
 }
 
-export default function ShoppingListPage({ authSession }) {
+export default function ShoppingListPage({ authSession, notify }) {
   const [payload, setPayload] = useState(null);
   const [boughtMap, setBoughtMap] = useState(loadBoughtMap);
   const [days, setDays] = useState(7);
@@ -49,13 +50,19 @@ export default function ShoppingListPage({ authSession }) {
         mealsPerDay: profile.meals_per_day,
       });
       setPayload(nextPayload);
+      if (!showFullLoader) {
+        notify?.({
+          title: "Список покупок обновлен",
+          message: `Позиций: ${nextPayload.items?.length ?? 0}.`,
+        });
+      }
     } catch (error) {
       setErrorMessage(error.message || "Не удалось сформировать список покупок.");
     } finally {
       setIsLoading(false);
       setIsRefreshing(false);
     }
-  }, [accessToken]);
+  }, [accessToken, notify]);
 
   useEffect(() => {
     loadShoppingList(days, true);
@@ -86,6 +93,14 @@ export default function ShoppingListPage({ authSession }) {
     .reduce((sum, item) => sum + (item.estimated_cost_rub || 0), 0);
   const dailyBudget = payload?.preference_profile?.daily_budget_rub;
   const weeklyBudget = payload?.preference_profile?.weekly_budget_rub;
+  const budgetLimit =
+    payload?.days === 1 && dailyBudget != null
+      ? Number(dailyBudget)
+      : weeklyBudget != null
+        ? Number(weeklyBudget)
+        : null;
+  const totalCost = Number(payload?.estimated_total_cost_rub || 0);
+  const isOverBudget = budgetLimit != null && totalCost > budgetLimit;
 
   const toggleBought = (item) => {
     const nextBought = !boughtMap[item.id];
@@ -167,12 +182,7 @@ export default function ShoppingListPage({ authSession }) {
         ) : null}
 
         {isLoading ? (
-          <div className="rounded-3xl bg-white p-10 text-center shadow-sm ring-1 ring-slate-200">
-            <h2 className="text-2xl font-semibold">Собираем список...</h2>
-            <p className="mt-3 text-slate-600">
-              Подбираем продукты из текущего плана питания.
-            </p>
-          </div>
+          <PageSkeleton rows={4} />
         ) : items.length === 0 ? (
           <div className="rounded-3xl bg-white p-10 text-center shadow-sm ring-1 ring-slate-200">
             <h2 className="text-2xl font-semibold">Список пока пуст</h2>
@@ -241,7 +251,7 @@ export default function ShoppingListPage({ authSession }) {
                             </p>
                             <p className="mt-1 text-xs text-slate-500">
                               {item.calories_per_100g
-                                ? `${Math.round(item.calories_per_100g)} ккал/100 г`
+                                ? `справочно: ${Math.round(item.calories_per_100g)} ккал/100 г`
                                 : "ккал нет"}
                             </p>
                           </div>
@@ -287,13 +297,23 @@ export default function ShoppingListPage({ authSession }) {
                   <div className="flex items-center justify-between rounded-2xl bg-slate-50 px-4 py-3">
                     <span>Бюджет</span>
                     <strong>
-                      {payload?.days === 1 && dailyBudget != null
-                        ? `${formatCurrency(dailyBudget)} ₽`
-                        : weeklyBudget != null
-                          ? `${formatCurrency(weeklyBudget)} ₽`
+                      {budgetLimit != null
+                        ? `${formatCurrency(budgetLimit)} ₽`
                           : "Не указан"}
                     </strong>
                   </div>
+                  {budgetLimit != null ? (
+                    <div
+                      className={`flex items-center justify-between rounded-2xl px-4 py-3 ${
+                        isOverBudget
+                          ? "bg-red-50 text-red-700"
+                          : "bg-emerald-50 text-emerald-700"
+                      }`}
+                    >
+                      <span>Статус бюджета</span>
+                      <strong>{isOverBudget ? "Выше бюджета" : "Вписывается"}</strong>
+                    </div>
+                  ) : null}
                   <div className="flex items-center justify-between rounded-2xl bg-slate-50 px-4 py-3">
                     <span>Осталось купить</span>
                     <strong>≈ {formatCurrency(remainingCost)} ₽</strong>

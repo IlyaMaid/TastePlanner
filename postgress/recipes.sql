@@ -14,6 +14,10 @@ CREATE TABLE recipes (
     rating NUMERIC(3,2),
     region_code TEXT REFERENCES regions(code),
     season_code TEXT REFERENCES seasons(code),
+    language TEXT DEFAULT 'unknown',
+    is_user_facing BOOLEAN NOT NULL DEFAULT TRUE,
+    quality_score NUMERIC(4,3) NOT NULL DEFAULT 0.500,
+    tags_json JSONB NOT NULL DEFAULT '[]'::jsonb,
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     UNIQUE (source, source_recipe_id)
 );

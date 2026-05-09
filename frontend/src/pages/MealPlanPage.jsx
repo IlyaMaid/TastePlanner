@@ -1,8 +1,15 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 
+import { PageSkeleton } from "../components/Skeleton";
 import { fetchMyProfile } from "../lib/profile";
 import { fetchMealPlan, saveUserEvent, swapMeal } from "../lib/recommendations";
+
+const SWAP_MODES = [
+  { id: "cheaper", label: "Дешевле" },
+  { id: "faster", label: "Быстрее" },
+  { id: "lighter", label: "Легче" },
+];
 
 function NutritionTile({ label, value }) {
   return (
@@ -46,7 +53,19 @@ function recalculateTotals(meals) {
   };
 }
 
-export default function MealPlanPage({ authSession }) {
+function ProgressBar({ value, max, tone = "emerald" }) {
+  const percent =
+    max && max > 0 ? Math.min(100, Math.round((Number(value || 0) / max) * 100)) : 0;
+  const color = tone === "amber" ? "bg-amber-500" : "bg-emerald-500";
+
+  return (
+    <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-100">
+      <div className={`h-full rounded-full ${color}`} style={{ width: `${percent}%` }} />
+    </div>
+  );
+}
+
+export default function MealPlanPage({ authSession, notify }) {
   const [mealPlan, setMealPlan] = useState(null);
   const [profile, setProfile] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -76,13 +95,16 @@ export default function MealPlanPage({ authSession }) {
         mealsPerDay: currentProfile.meals_per_day,
       });
       setMealPlan(payload);
+      if (!showFullLoader) {
+        notify?.({ title: "Рацион обновлен", message: "Подборка блюд пересобрана." });
+      }
     } catch (error) {
       setErrorMessage(error.message || "Не удалось построить план питания.");
     } finally {
       setIsLoading(false);
       setIsRefreshing(false);
     }
-  }, [accessToken]);
+  }, [accessToken, notify]);
 
   useEffect(() => {
     loadMealPlan(true);
@@ -97,12 +119,12 @@ export default function MealPlanPage({ authSession }) {
     estimated_cost_rub: 0,
   };
 
-  const handleSwapMeal = async (meal) => {
+  const handleSwapMeal = async (meal, mode = "balanced") => {
     if (!accessToken || !mealPlan) {
       return;
     }
 
-    setSwappingSlot(meal.slot);
+    setSwappingSlot(`${meal.slot}-${mode}`);
     setErrorMessage("");
 
     try {
@@ -111,6 +133,7 @@ export default function MealPlanPage({ authSession }) {
         current_recipe_id: meal.recipe.id,
         target_calories: meal.target_calories,
         excluded_recipe_ids: mealPlan.meals.map((item) => item.recipe.id),
+        mode,
       });
 
       try {
@@ -120,6 +143,7 @@ export default function MealPlanPage({ authSession }) {
           payload_json: {
             slot: meal.slot,
             previous_recipe_id: meal.recipe.id,
+            mode,
           },
         });
       } catch {
@@ -142,8 +166,22 @@ export default function MealPlanPage({ authSession }) {
           totals: recalculateTotals(nextMeals),
         };
       });
+      notify?.({
+        title: "Блюдо заменено",
+        message:
+          mode === "cheaper"
+            ? "Подобрали более бюджетный вариант."
+            : mode === "faster"
+              ? "Подобрали более быстрый вариант."
+              : "Подобрали более легкий вариант.",
+      });
     } catch (error) {
       setErrorMessage(error.message || "Не удалось заменить блюдо.");
+      notify?.({
+        type: "error",
+        title: "Не удалось заменить блюдо",
+        message: "Попробуйте обновить план или выбрать другой режим.",
+      });
     } finally {
       setSwappingSlot(null);
     }
@@ -161,6 +199,15 @@ export default function MealPlanPage({ authSession }) {
   const preferenceProfile = mealPlan?.preference_profile;
   const dailyBudget = profile?.daily_budget_rub;
   const weeklyBudget = profile?.weekly_budget_rub;
+  const calorieTarget = mealPlan?.daily_target_calories;
+  const budgetLimit =
+    dailyBudget != null
+      ? Number(dailyBudget)
+      : weeklyBudget != null
+        ? Number(weeklyBudget) / 7
+        : null;
+  const isOverBudget =
+    budgetLimit != null && Number(totals.estimated_cost_rub || 0) > budgetLimit;
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900">
@@ -210,12 +257,7 @@ export default function MealPlanPage({ authSession }) {
         ) : null}
 
         {isLoading ? (
-          <div className="rounded-3xl bg-white p-10 text-center shadow-sm ring-1 ring-slate-200">
-            <h2 className="text-2xl font-semibold">Собираем рацион...</h2>
-            <p className="mt-3 text-slate-600">
-              Подбираем блюда и раскладываем их по приемам пищи.
-            </p>
-          </div>
+          <PageSkeleton rows={4} />
         ) : (
           <div className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
             <section className="space-y-4">
@@ -247,16 +289,37 @@ export default function MealPlanPage({ authSession }) {
                         </div>
                       </div>
 
-                      <button
-                        type="button"
-                        onClick={() => handleSwapMeal(meal)}
-                        disabled={swappingSlot === meal.slot}
-                        className="inline-flex min-h-11 items-center justify-center rounded-2xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600 transition hover:border-slate-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
-                      >
-                        {swappingSlot === meal.slot ? "Меняем..." : "Заменить"}
-                      </button>
+                      <div className="grid grid-cols-3 gap-2">
+                        {SWAP_MODES.map((mode) => {
+                          const isBusy = swappingSlot === `${meal.slot}-${mode.id}`;
+                          return (
+                            <button
+                              key={mode.id}
+                              type="button"
+                              onClick={() => handleSwapMeal(meal, mode.id)}
+                              disabled={Boolean(swappingSlot)}
+                              className="inline-flex min-h-10 items-center justify-center rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-600 transition hover:border-slate-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                              {isBusy ? "..." : mode.label}
+                            </button>
+                          );
+                        })}
+                      </div>
                     </div>
                   </div>
+
+                  {meal.recipe.recommendation_reasons?.length > 0 ? (
+                    <div className="mt-5 flex flex-wrap gap-2">
+                      {meal.recipe.recommendation_reasons.slice(0, 4).map((reason) => (
+                        <span
+                          key={reason}
+                          className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700 ring-1 ring-emerald-100"
+                        >
+                          {reason}
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
 
                   <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-5">
                     <NutritionTile
@@ -313,27 +376,49 @@ export default function MealPlanPage({ authSession }) {
                   <div className="flex items-center justify-between rounded-2xl bg-slate-50 px-4 py-3">
                     <span>Цель</span>
                     <strong>
-                      {mealPlan?.daily_target_calories != null
-                        ? `${Math.round(mealPlan.daily_target_calories)} ккал`
+                      {calorieTarget != null
+                        ? `${Math.round(calorieTarget)} ккал`
                         : "Нет данных"}
                     </strong>
                   </div>
-                  <div className="flex items-center justify-between rounded-2xl bg-slate-50 px-4 py-3">
-                    <span>Калории</span>
-                    <strong>{formatNumber(totals.calories, " ккал")}</strong>
+                  <div className="rounded-2xl bg-slate-50 px-4 py-3">
+                    <div className="flex items-center justify-between">
+                      <span>Калории</span>
+                      <strong>{formatNumber(totals.calories, " ккал")}</strong>
+                    </div>
+                    <ProgressBar value={totals.calories} max={calorieTarget} />
                   </div>
-                  <div className="flex items-center justify-between rounded-2xl bg-slate-50 px-4 py-3">
-                    <span>Стоимость</span>
-                    <strong>≈ {formatNumber(totals.estimated_cost_rub, " ₽")}</strong>
+                  <div className="rounded-2xl bg-slate-50 px-4 py-3">
+                    <div className="flex items-center justify-between">
+                      <span>Стоимость</span>
+                      <strong>≈ {formatNumber(totals.estimated_cost_rub, " ₽")}</strong>
+                    </div>
+                    <ProgressBar
+                      value={totals.estimated_cost_rub}
+                      max={budgetLimit}
+                      tone={isOverBudget ? "amber" : "emerald"}
+                    />
                   </div>
                   <div className="flex items-center justify-between rounded-2xl bg-slate-50 px-4 py-3">
                     <span>Бюджет</span>
                     <strong>
-                      {dailyBudget != null
-                        ? `${Math.round(dailyBudget)} ₽`
+                      {budgetLimit != null
+                        ? `${Math.round(budgetLimit)} ₽`
                         : "Не указан"}
                     </strong>
                   </div>
+                  {budgetLimit != null ? (
+                    <div
+                      className={`flex items-center justify-between rounded-2xl px-4 py-3 ${
+                        isOverBudget
+                          ? "bg-amber-50 text-amber-700"
+                          : "bg-emerald-50 text-emerald-700"
+                      }`}
+                    >
+                      <span>Статус</span>
+                      <strong>{isOverBudget ? "Выше бюджета" : "Вписывается"}</strong>
+                    </div>
+                  ) : null}
                   <div className="flex items-center justify-between rounded-2xl bg-slate-50 px-4 py-3">
                     <span>Белки</span>
                     <strong>{formatNumber(totals.protein, " г")}</strong>

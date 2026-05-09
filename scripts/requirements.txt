@@ -1,3 +1,4 @@
 pandas
 pyaterochka-api
 sqlalchemy
+matplotlib

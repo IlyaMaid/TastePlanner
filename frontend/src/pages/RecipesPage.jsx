@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 
+import { PageSkeleton } from "../components/Skeleton";
 import RecipeCard from "../components/RecipeCard";
 import {
   fetchRecommendations,
@@ -10,6 +11,7 @@ import {
 
 const FILTERS = [
   { id: "all", label: "Все" },
+  { id: "seasonal", label: "По сезону" },
   { id: "quick", label: "До 30 минут" },
   { id: "budget", label: "Дешевле" },
   { id: "light", label: "Меньше калорий" },
@@ -18,18 +20,43 @@ const FILTERS = [
 
 function formatProductDetail(ingredient) {
   const name = ingredient.name_ru || ingredient.raw_text;
+  const quantity = formatIngredientQuantity(ingredient);
   const calories =
-    ingredient.calories_per_100g != null
-      ? `${Math.round(Number(ingredient.calories_per_100g))} ккал/100 г`
-      : "ккал нет";
+    ingredient.calories_total != null
+      ? `${Math.round(Number(ingredient.calories_total))} ккал`
+      : ingredient.calories_per_100g != null
+        ? `${Math.round(Number(ingredient.calories_per_100g))} ккал/100 г`
+        : "ккал нет";
   const price =
-    ingredient.price_per_100g_rub != null
-      ? `${Number(ingredient.price_per_100g_rub).toLocaleString("ru-RU", {
+    ingredient.estimated_cost_rub != null
+      ? `≈ ${Number(ingredient.estimated_cost_rub).toLocaleString("ru-RU", {
           maximumFractionDigits: 1,
-        })} ₽/100 г`
-      : "цены нет";
+        })} ₽`
+      : ingredient.price_per_100g_rub != null
+        ? `${Number(ingredient.price_per_100g_rub).toLocaleString("ru-RU", {
+            maximumFractionDigits: 1,
+          })} ₽/100 г`
+        : "цены нет";
 
-  return `${name}: ${calories}, ${price}`;
+  return `${name}${quantity ? `, ${quantity}` : ""}: ${calories}, ${price}`;
+}
+
+function formatIngredientQuantity(ingredient) {
+  const quantity =
+    ingredient.quantity != null && ingredient.unit === "g"
+      ? `${Number(ingredient.quantity).toLocaleString("ru-RU", {
+          maximumFractionDigits: 0,
+        })} г`
+      : null;
+
+  return quantity;
+}
+
+function formatIngredientListItem(ingredient) {
+  const name = ingredient.name_ru || ingredient.raw_text;
+  const quantity = formatIngredientQuantity(ingredient);
+
+  return `${name}${quantity ? ` - ${quantity}` : ""}`;
 }
 
 function formatRecipe(recipe) {
@@ -55,14 +82,32 @@ function formatRecipe(recipe) {
       typeof recipe.predicted_rating === "number"
         ? recipe.predicted_rating.toFixed(2)
         : null,
+    contentSimilarity:
+      typeof recipe.content_similarity === "number"
+        ? recipe.content_similarity
+        : null,
+    predictedScore:
+      typeof recipe.predicted_score === "number"
+        ? recipe.predicted_score
+        : null,
+    finalScore:
+      typeof recipe.final_score === "number" ? recipe.final_score : null,
     estimatedCostRub:
       typeof recipe.estimated_cost_rub === "number"
         ? recipe.estimated_cost_rub
         : null,
-    ingredientsPreview: Array.isArray(recipe.ingredients)
-      ? recipe.ingredients.slice(0, 4)
-      : [],
-    ingredientsList: Array.isArray(recipe.ingredients) ? recipe.ingredients : [],
+    ingredientsPreview:
+      ingredientDetails.length > 0
+        ? ingredientDetails.slice(0, 4).map(formatIngredientListItem)
+        : Array.isArray(recipe.ingredients)
+          ? recipe.ingredients.slice(0, 4)
+          : [],
+    ingredientsList:
+      ingredientDetails.length > 0
+        ? ingredientDetails.map(formatIngredientListItem)
+        : Array.isArray(recipe.ingredients)
+          ? recipe.ingredients
+          : [],
     cookingSteps: Array.isArray(recipe.cooking_steps) ? recipe.cooking_steps : [],
     cookingStepsPreview: Array.isArray(recipe.cooking_steps)
       ? recipe.cooking_steps.slice(0, 4)
@@ -76,6 +121,10 @@ function formatRecipe(recipe) {
 }
 
 function matchesFilter(recipe, filterId) {
+  if (filterId === "seasonal") {
+    return Boolean(recipe.is_seasonal_now);
+  }
+
   if (filterId === "quick") {
     return recipe.total_minutes != null && Number(recipe.total_minutes) <= 30;
   }
@@ -99,6 +148,7 @@ export default function RecipesPage({
   authSession,
   favorites,
   toggleFavorite,
+  notify,
 }) {
   const [recipes, setRecipes] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -125,13 +175,16 @@ export default function RecipesPage({
     try {
       const payload = await fetchRecommendations(accessToken, { limit: 12 });
       setRecipes((payload.items ?? []).map((item) => formatRecipe(item)));
+      if (!showFullLoader) {
+        notify?.({ title: "Рецепты обновлены", message: "Подборка стала свежее." });
+      }
     } catch (error) {
       setErrorMessage(error.message || "Не удалось загрузить рецепты.");
     } finally {
       setIsLoading(false);
       setIsRefreshing(false);
     }
-  }, [accessToken]);
+  }, [accessToken, notify]);
 
   useEffect(() => {
     loadRecipes(true);
@@ -184,6 +237,12 @@ export default function RecipesPage({
         is_favorite: !wasFavorite,
       });
       await loadRecipes(false);
+      notify?.({
+        title: !wasFavorite ? "Реакция сохранена" : "Рецепт обновлен",
+        message: !wasFavorite
+          ? "Учтем это в следующих рекомендациях."
+          : "Избранное обновлено.",
+      });
     } catch (error) {
       setErrorMessage(error.message || "Не удалось сохранить реакцию на рецепт.");
     } finally {
@@ -218,6 +277,10 @@ export default function RecipesPage({
       });
       setRecipes((items) => items.filter((item) => item.id !== recipe.id));
       await loadRecipes(false);
+      notify?.({
+        title: "Спасибо за обратную связь",
+        message: "Мы покажем более подходящие блюда.",
+      });
     } catch (error) {
       setErrorMessage(error.message || "Не удалось сохранить реакцию на рецепт.");
     } finally {
@@ -285,12 +348,7 @@ export default function RecipesPage({
         </div>
 
         {isLoading ? (
-          <div className="rounded-3xl bg-white p-10 text-center shadow-sm ring-1 ring-slate-200">
-            <h2 className="text-2xl font-semibold">Загружаем рецепты...</h2>
-            <p className="mt-3 text-slate-600">
-              Подождите немного, сейчас появится свежая подборка.
-            </p>
-          </div>
+          <PageSkeleton rows={4} />
         ) : visibleRecipes.length === 0 ? (
           <div className="rounded-3xl bg-white p-10 text-center shadow-sm ring-1 ring-slate-200">
             <h2 className="text-2xl font-semibold">Ничего не найдено</h2>

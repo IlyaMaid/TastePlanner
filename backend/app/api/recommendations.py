@@ -1,4 +1,6 @@
 import json
+from datetime import datetime, timezone
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import text
@@ -20,6 +22,41 @@ from app.services.recommender import (
 )
 
 router = APIRouter()
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
+MODEL_REPORT_PATH = (
+    PROJECT_ROOT / "artifacts" / "recommender" / "tasteplanner_content_ranker_report.json"
+)
+
+
+def load_model_readiness() -> dict:
+    if not MODEL_REPORT_PATH.exists():
+        return {"exists": False}
+
+    try:
+        report = json.loads(MODEL_REPORT_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {"exists": False, "error": "model_report_unreadable"}
+
+    stat = MODEL_REPORT_PATH.stat()
+    validation = report.get("splits", {}).get("validation", {})
+    test = report.get("splits", {}).get("test", {})
+
+    return {
+        "exists": True,
+        "model_type": report.get("model_type"),
+        "target": report.get("target"),
+        "validation_roc_auc": validation.get("roc_auc"),
+        "validation_average_precision": validation.get("average_precision"),
+        "test_roc_auc": test.get("roc_auc"),
+        "test_average_precision": test.get("average_precision"),
+        "train_rows": report.get("splits", {}).get("train", {}).get("rows"),
+        "validation_rows": validation.get("rows"),
+        "test_rows": test.get("rows"),
+        "updated_at": datetime.fromtimestamp(
+            stat.st_mtime,
+            tz=timezone.utc,
+        ).isoformat(),
+    }
 
 
 @router.get("")
@@ -160,7 +197,27 @@ def get_readiness(
                 (SELECT COUNT(*) FROM recipes) AS recipes_count,
                 (SELECT COUNT(*) FROM recipe_ingredients) AS recipe_ingredients_count,
                 (SELECT COUNT(*) FROM ingredients WHERE price_per_100g_rub IS NOT NULL) AS priced_products_count,
-                (SELECT COUNT(*) FROM recipes WHERE translated_title IS NOT NULL) AS localized_recipes_count
+                (SELECT COUNT(*) FROM ingredient_aliases) AS ingredient_aliases_count,
+                (SELECT COUNT(*) FROM recipes WHERE translated_title IS NOT NULL) AS localized_recipes_count,
+                (SELECT COUNT(*) FROM recipe_features) AS recipe_features_count,
+                (SELECT ROUND(AVG(price_coverage), 4) FROM recipe_features) AS avg_price_coverage,
+                (SELECT COUNT(*) FROM recipe_features WHERE time_tier <> 'unknown') AS recipes_with_time_count,
+                (SELECT COUNT(*) FROM recipe_features WHERE calorie_tier <> 'unknown') AS recipes_with_calories_count,
+                (
+                    SELECT COUNT(*)
+                    FROM users
+                    WHERE email LIKE 'bootstrap.%@tasteplanner.local'
+                ) AS bootstrap_users_count,
+                (
+                    SELECT COUNT(*)
+                    FROM user_recipe_feedback urf
+                    JOIN users u ON u.id = urf.user_id
+                    WHERE u.email LIKE 'bootstrap.%@tasteplanner.local'
+                ) AS bootstrap_feedback_count,
+                (
+                    SELECT COUNT(*)
+                    FROM user_recipe_feedback
+                ) AS total_feedback_count
             """
         )
     ).mappings().first()
@@ -186,8 +243,23 @@ def get_readiness(
             "recipes_count": int(dataset["recipes_count"] or 0),
             "recipe_ingredients_count": int(dataset["recipe_ingredients_count"] or 0),
             "priced_products_count": int(dataset["priced_products_count"] or 0),
+            "ingredient_aliases_count": int(dataset["ingredient_aliases_count"] or 0),
             "localized_recipes_count": int(dataset["localized_recipes_count"] or 0),
+            "recipe_features_count": int(dataset["recipe_features_count"] or 0),
+            "avg_price_coverage": (
+                float(dataset["avg_price_coverage"])
+                if dataset["avg_price_coverage"] is not None
+                else 0
+            ),
+            "recipes_with_time_count": int(dataset["recipes_with_time_count"] or 0),
+            "recipes_with_calories_count": int(
+                dataset["recipes_with_calories_count"] or 0
+            ),
+            "bootstrap_users_count": int(dataset["bootstrap_users_count"] or 0),
+            "bootstrap_feedback_count": int(dataset["bootstrap_feedback_count"] or 0),
+            "total_feedback_count": int(dataset["total_feedback_count"] or 0),
         },
+        "model": load_model_readiness(),
     }
 
 
@@ -319,6 +391,7 @@ def swap_meal(
             current_recipe_id=payload.current_recipe_id,
             target_calories=payload.target_calories,
             excluded_recipe_ids=payload.excluded_recipe_ids,
+            mode=payload.mode,
         )
     except ValueError as exc:
         raise HTTPException(
