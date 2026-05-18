@@ -1,42 +1,104 @@
 # TastePlanner
 
-Веб-приложение для планирования персонального рациона с учетом анкеты пользователя, бюджета, сезонности, аллергий, любимых и нелюбимых продуктов.
+TastePlanner - полнофункциональное веб-приложение для персонального планирования питания. Пользователь заполняет профиль, получает рекомендации рецептов, собирает план на день или неделю, оценивает калории, БЖУ и примерную стоимость продуктов, а затем формирует список покупок.
 
-## Что реализовано
+Приложение ориентировано на русскоязычный сценарий использования: рецепты, анкета, продуктовый каталог, пояснения рекомендаций и сводки по плану питания отображаются на русском языке.
 
-- Авторизация и профиль пользователя.
-- Расширенная анкета: цель, активность, регион, бюджет, количество приемов пищи, предпочтения, аллергии.
-- Рекомендации рецептов на русском языке.
-- Расширенная карточка рецепта: способ приготовления, ингредиенты, стоимость, калории, источник и ML-оценки.
-- План питания на день и неделю.
-- Список покупок с группировкой продуктов и примерной стоимостью.
-- Сезонность продуктов и региональные зоны России.
-- Гибридная рекомендательная система:
-  - content-based filtering;
-  - cosine similarity / KNN-подход по векторам пользователя и блюд;
-  - модель предсказания вероятности лайка;
-  - оптимизация распределения блюд по приемам пищи через `scipy.optimize`.
-- Страница `/readiness` для проверки готовности данных, обратной связи и модели.
+## Возможности
 
-## Технологии
+- Регистрация, вход, обновление JWT-сессии и загрузка профиля текущего пользователя.
+- Анкета пользователя: цель, активность, регион, бюджет, количество приемов пищи, аллергии, нелюбимые и любимые продукты.
+- Рекомендации рецептов с калориями, БЖУ, примерной стоимостью, ингредиентами, шагами приготовления, тегами и объяснением причины рекомендации.
+- План питания на день и неделю с распределением блюд по приемам пищи.
+- Варианты замены блюда внутри плана питания.
+- Список покупок с группировкой ингредиентов и приблизительной ценой.
+- Поддержка российского продуктового каталога с пищевой ценностью и ценами.
+- Техническая страница `/readiness` для проверки готовности данных, обратной связи и модели.
+- Гибридная рекомендательная логика: профиль пользователя, признаки рецептов, обратная связь, similarity scoring и модельное ранжирование.
 
+## Стек
+
+- Backend: FastAPI, SQLAlchemy, Pydantic, PostgreSQL.
 - Frontend: React, Vite, React Router, Tailwind CSS.
-- Backend: FastAPI, SQLAlchemy, PostgreSQL.
-- ML/Data: pandas, numpy, scikit-learn, joblib, scipy.
-- Опционально для модели: CatBoost или XGBoost, если установлены в окружении.
+- ML и обработка данных: pandas, numpy, scikit-learn, scipy, joblib, matplotlib.
+- Опционально для обучения моделей: CatBoost или XGBoost, если установлены в окружении.
+
+## Структура проекта
+
+```text
+backend/      FastAPI-приложение, API-роутеры, схемы, SQLAlchemy-модели, сервисы
+frontend/     клиентское React/Vite-приложение
+postgress/    SQL-схемы и миграции
+scripts/      импорт данных, построение признаков, обучение моделей, отчеты
+datasets/     локальные CSV-датасеты, не коммитятся
+artifacts/    сгенерированные выборки, отчеты, графики и модели, не коммитятся
+```
+
+## Требования
+
+- Python 3.11 или новее.
+- Node.js 20 или новее.
+- PostgreSQL 14 или новее.
+- Команды ниже рассчитаны на Windows PowerShell и путь проекта `D:\TastePlanner`.
+
+## Переменные окружения
+
+Backend читает настройки из `backend/.env`. Настоящий `.env` не должен попадать в GitHub, поэтому перед запуском создайте его из примера:
+
+```powershell
+Copy-Item backend\.env.example backend\.env
+```
+
+Затем отредактируйте `backend\.env`:
+
+```env
+DATABASE_URL=postgresql://postgres:postgres@localhost:5432/tasteplanner
+SECRET_KEY=replace-with-a-long-random-secret
+ALGORITHM=HS256
+ACCESS_TOKEN_EXPIRE_MINUTES=30
+```
+
+Frontend может запускаться без env-файла: по умолчанию он обращается к `http://localhost:8000`. Если нужно указать другой адрес API, создайте `frontend/.env`:
+
+```powershell
+Copy-Item frontend\.env.example frontend\.env
+```
+
+```env
+VITE_API_BASE_URL=http://localhost:8000
+```
 
 ## Запуск backend
 
+Создайте виртуальное окружение и установите зависимости:
+
 ```powershell
 cd D:\TastePlanner
-.\.venv\Scripts\python.exe -m uvicorn app.main:app --app-dir backend --host 127.0.0.1 --port 8000
+py -3.11 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install --upgrade pip
+.\.venv\Scripts\python.exe -m pip install -r backend\requirements.txt
+.\.venv\Scripts\python.exe -m pip install -r scripts\requirements.txt
 ```
 
-Если команда запускается из папки `backend`, можно использовать:
+Создайте базу PostgreSQL `tasteplanner`, затем примените SQL-файлы из `postgress/` под нужное состояние схемы. Приложению нужны таблицы пользователей, профилей, рецептов, ингредиентов, ограничений, сезонности, регионов, логов рекомендаций и сигналов обратной связи для обучения.
+
+Запускайте backend из папки `backend`, чтобы `.env` корректно подхватился:
 
 ```powershell
 cd D:\TastePlanner\backend
 ..\.venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+```
+
+Проверка:
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:8000/health
+```
+
+Ожидаемый ответ:
+
+```json
+{"status":"ok"}
 ```
 
 ## Запуск frontend
@@ -47,62 +109,62 @@ npm install
 npm run dev
 ```
 
-Обычно приложение доступно на `http://localhost:5173/`.
+Обычно приложение доступно по адресу:
 
-## Подготовка данных и обучение модели
+```text
+http://localhost:5173
+```
 
-Полный пайплайн подготовки данных и переобучения:
+## Данные и обучение модели
+
+Локальные датасеты и сгенерированные ML-артефакты намеренно исключены из git. Исходные CSV храните в `datasets/`, а модели, отчеты и графики - в `artifacts/`.
+
+Полный пайплайн обновления рекомендательной системы:
 
 ```powershell
 cd D:\TastePlanner
 .\.venv\Scripts\python.exe scripts\retrain_recommender.py
 ```
 
-Скрипт последовательно:
+Пайплайн может:
 
-1. Импортирует curated Russian recipes.
-2. Обновляет признаки рецептов.
-3. Генерирует bootstrap-обратную связь.
-4. Экспортирует training dataset.
-5. Делит данные на train / validation / test.
-6. Обучает content-based ranker.
-7. Считает baseline.
-8. Генерирует графики обучения через matplotlib.
-9. Обновляет data quality report.
+- импортировать curated Russian recipes;
+- построить признаки рецептов;
+- сгенерировать bootstrap-обратную связь;
+- экспортировать обучающий датасет;
+- разделить данные на train/validation/test;
+- обучить content ranker;
+- посчитать baseline;
+- сгенерировать графики;
+- обновить отчет о качестве данных.
 
-Основные артефакты:
-
-- `artifacts/recommender/tasteplanner_content_ranker.joblib`
-- `artifacts/recommender/tasteplanner_content_ranker_report.json`
-- `artifacts/recommender/retrain_summary.json`
-- `artifacts/recommender/training_plots/`
-- `artifacts/training/tasteplanner_training_dataset.csv`
-- `artifacts/training/tasteplanner_data_quality_report.json`
-
-Если нужно переобучить только модель без повторного импорта рецептов:
+Если рецепты уже есть в базе, импорт можно пропустить:
 
 ```powershell
 .\.venv\Scripts\python.exe scripts\retrain_recommender.py --skip-import
 ```
 
-Если CatBoost или XGBoost не установлены, режим `--model auto` использует sklearn-модель.
+Основные сгенерированные файлы:
 
-Отдельно пересоздать только графики обучения:
-
-```powershell
-.\.venv\Scripts\python.exe scripts\generate_training_plots.py
+```text
+artifacts/recommender/tasteplanner_content_ranker.joblib
+artifacts/recommender/tasteplanner_content_ranker_report.json
+artifacts/recommender/retrain_summary.json
+artifacts/recommender/training_plots/
+artifacts/training/tasteplanner_training_dataset.csv
+artifacts/training/tasteplanner_data_quality_report.json
 ```
 
-## Проверки
+## Проверки перед публикацией
 
-Backend и scripts:
+Проверка backend:
 
 ```powershell
 cd D:\TastePlanner
-.\.venv\Scripts\python.exe -m py_compile backend\app\api\recommendations.py scripts\retrain_recommender.py scripts\train_content_based_ranker.py
+.\.venv\Scripts\python.exe -m py_compile backend\app\main.py backend\app\api\recommendations.py backend\app\api\recipes.py backend\app\services\recommender.py
 ```
 
-Frontend:
+Проверка frontend:
 
 ```powershell
 cd D:\TastePlanner\frontend
@@ -110,13 +172,37 @@ npm run lint
 npm run build
 ```
 
-## Структура проекта
+Проверка репозитория:
 
-```text
-backend/      FastAPI backend, API, модели БД, сервис рекомендаций
-frontend/     React frontend
-scripts/      импорт данных, построение признаков, обучение и отчеты
-postgress/    SQL-миграции и схема
-datasets/     локальные CSV-датасеты
-artifacts/    обучающие выборки, отчеты и ML-модель
+```powershell
+cd D:\TastePlanner
+git status --short
+```
+
+Перед отправкой на GitHub убедитесь, что не коммитятся:
+
+- `backend/.env` и другие реальные env-файлы;
+- `.venv/`, `venv/`, `frontend/node_modules/`, `frontend/dist/`;
+- `datasets/` с приватными или тяжелыми исходными данными;
+- `artifacts/` с моделями, отчетами, скриншотами и обучающими выборками;
+- личные coursework-скрипты и временные файлы обработки документов.
+
+## Публикация на GitHub
+
+Один из вариантов публикации текущей ветки:
+
+```powershell
+cd D:\TastePlanner
+git status --short
+git add README.md .gitignore backend\.env.example frontend\.env.example
+git commit -m "Prepare project for GitHub"
+git remote add origin https://github.com/<your-login>/<repo-name>.git
+git push -u origin newback
+```
+
+Если remote уже добавлен:
+
+```powershell
+git remote -v
+git push -u origin newback
 ```

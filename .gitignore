@@ -2,12 +2,23 @@
 venv/
 
 __pycache__/
-*.pyc
+*.py[cod]
 *.pyo
 *.pyd
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
 
+.env
+.env.*
 backend/.env
 backend/.env.*
+!backend/.env.example
+frontend/.env
+frontend/.env.*
+!frontend/.env.example
 
 datasets/
 artifacts/
@@ -17,3 +28,22 @@ frontend/dist/
 
 *.sqlite3
 *.db
+*.log
+
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Local coursework/document-generation helpers that are not part of the app.
+scripts/capture_coursework_screenshots.mjs
+scripts/clean_coursework_empty_paragraphs.py
+scripts/create_coursework_25_pages.py
+scripts/expand_coursework_to_25_pages.py
+scripts/fix_coursework_all_tables.py
+scripts/fix_coursework_table_format.py
+scripts/generate_coursework_diagrams.mjs
+scripts/insert_coursework_figures.py
+scripts/render_coursework_diagrams_png.mjs
+scripts/revise_coursework_docx.py
+scripts/rewrite_coursework_section_1_3.py
