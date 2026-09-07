@@ -1,5 +1,58 @@
 import { useEffect, useState } from "react";
 
+const ACCENT_PALETTE = [
+  { chip: "bg-amber-50 ring-amber-100", icon: "text-amber-600" },
+  { chip: "bg-rose-50 ring-rose-100", icon: "text-rose-600" },
+  { chip: "bg-sky-50 ring-sky-100", icon: "text-sky-600" },
+  { chip: "bg-violet-50 ring-violet-100", icon: "text-violet-600" },
+  { chip: "bg-lime-50 ring-lime-100", icon: "text-lime-700" },
+  { chip: "bg-orange-50 ring-orange-100", icon: "text-orange-600" },
+];
+
+function hashString(value) {
+  let hash = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    hash = (hash * 31 + value.charCodeAt(index)) >>> 0;
+  }
+  return hash;
+}
+
+function accentForRecipe(recipe) {
+  const key = String(recipe?.id ?? recipe?.title ?? "");
+  return ACCENT_PALETTE[hashString(key) % ACCENT_PALETTE.length];
+}
+
+function isGenericReason(reason) {
+  return reason.startsWith("По сезону") || reason.startsWith("Высокая прогнозная");
+}
+
+function sortReasonsBySpecificity(reasons) {
+  return [...reasons].sort(
+    (a, b) => Number(isGenericReason(a)) - Number(isGenericReason(b)),
+  );
+}
+
+function DishIcon({ className }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      xmlns="http://www.w3.org/2000/svg"
+      className={className}
+      aria-hidden="true"
+    >
+      <path d="M4 17c0-4.4 3.6-8 8-8s8 3.6 8 8" />
+      <ellipse cx="12" cy="17" rx="8" ry="3" />
+      <path d="M12 9V4" />
+      <path d="M9.5 5.5c0-1 .8-1.8 2.5-2.5 1.7.7 2.5 1.5 2.5 2.5" />
+    </svg>
+  );
+}
+
 function StarIcon({ filled }) {
   return (
     <svg
@@ -106,6 +159,8 @@ export default function RecipeCard({
   const ingredients = recipe.ingredientsList ?? recipe.ingredientsPreview ?? [];
   const productDetails = recipe.productDetails ?? recipe.productDetailsPreview ?? [];
   const recommendationReasons = recipe.recommendationReasons ?? [];
+  const cardReasons = sortReasonsBySpecificity(recommendationReasons).slice(0, 3);
+  const accent = accentForRecipe(recipe);
   const isSeasonalNow = Boolean(recipe.is_seasonal_now ?? recipe.isSeasonalNow);
   const scoreMetrics = [
     ["Сходство", formatPercent(recipe.contentSimilarity ?? recipe.content_similarity)],
@@ -160,15 +215,23 @@ export default function RecipeCard({
         className="cursor-pointer rounded-3xl bg-white p-5 shadow-sm ring-1 ring-slate-200 transition hover:-translate-y-0.5 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-emerald-400"
       >
         <div className="flex items-start justify-between gap-4">
-          <div className="min-w-0 flex-1">
-            <h2 className="line-clamp-2 text-xl font-semibold leading-tight text-slate-950">
-              {recipe.title}
-            </h2>
-            {isSeasonalNow ? (
-              <span className="mt-3 inline-flex rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700 ring-1 ring-emerald-100">
-                По сезону
-              </span>
-            ) : null}
+          <div className="flex min-w-0 flex-1 gap-3">
+            <div
+              className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl ring-1 ${accent.chip}`}
+            >
+              <DishIcon className={`h-6 w-6 ${accent.icon}`} />
+            </div>
+
+            <div className="min-w-0 flex-1">
+              <h2 className="line-clamp-2 text-xl font-semibold leading-tight text-slate-950">
+                {recipe.title}
+              </h2>
+              {isSeasonalNow ? (
+                <span className="mt-3 inline-flex rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700 ring-1 ring-emerald-100">
+                  По сезону
+                </span>
+              ) : null}
+            </div>
           </div>
 
           {variant === "favorite-toggle" ? (
@@ -204,9 +267,9 @@ export default function RecipeCard({
           <Metric label="Время" value={recipe.metaLabel || "Нет данных"} />
         </div>
 
-        {recommendationReasons.length > 0 ? (
+        {cardReasons.length > 0 ? (
           <div className="mt-4 flex flex-wrap gap-2">
-            {recommendationReasons.slice(0, 3).map((reason) => (
+            {cardReasons.map((reason) => (
               <span
                 key={reason}
                 className="rounded-full bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-600 ring-1 ring-slate-200"
@@ -231,16 +294,24 @@ export default function RecipeCard({
             onClick={(event) => event.stopPropagation()}
           >
             <div className="flex items-start justify-between gap-4">
-              <div className="min-w-0">
-                <p className="text-sm font-medium text-emerald-700">
-                  Расширенный рецепт
-                </p>
-                <h2 className="mt-2 text-2xl font-semibold leading-tight text-slate-950 sm:text-3xl">
-                  {recipe.title}
-                </h2>
-                <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600">
-                  {recipe.description || "Описание пока не добавлено."}
-                </p>
+              <div className="flex min-w-0 gap-4">
+                <div
+                  className={`hidden h-14 w-14 shrink-0 items-center justify-center rounded-2xl ring-1 sm:flex ${accent.chip}`}
+                >
+                  <DishIcon className={`h-7 w-7 ${accent.icon}`} />
+                </div>
+
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-emerald-700">
+                    Расширенный рецепт
+                  </p>
+                  <h2 className="mt-2 text-2xl font-semibold leading-tight text-slate-950 sm:text-3xl">
+                    {recipe.title}
+                  </h2>
+                  <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600">
+                    {recipe.description || "Описание пока не добавлено."}
+                  </p>
+                </div>
               </div>
 
               <button
@@ -415,7 +486,7 @@ export default function RecipeCard({
                         onFavoriteToggle();
                         setIsOpen(false);
                       }}
-                      className="inline-flex min-h-11 items-center justify-center rounded-2xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white transition hover:opacity-90"
+                      className="inline-flex min-h-11 items-center justify-center rounded-2xl bg-emerald-600 px-5 py-3 text-sm font-semibold text-white transition hover:opacity-90"
                     >
                       {isFavorite ? "Убрать из избранного" : "Добавить в избранное"}
                     </button>

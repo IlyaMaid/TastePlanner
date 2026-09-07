@@ -2,16 +2,24 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
 
-from app.api import auth, recommendations, recipes, users
+from app.api import auth, favorites, recommendations, recipes, users
 from app.core.config import settings
-from app.models import profile, user
+from app.core.rate_limit import limiter
+from app.models import favorite, password_reset_token, profile, user
 
 app = FastAPI(
     title=settings.app_name,
     version=settings.app_version,
     debug=settings.debug,
 )
+
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_middleware(SlowAPIMiddleware)
 
 app.add_middleware(
     CORSMiddleware,
@@ -25,6 +33,7 @@ app.add_middleware(
 app.include_router(auth.router, prefix="/auth", tags=["Auth"])
 app.include_router(users.router, prefix="/users", tags=["Users"])
 app.include_router(recipes.router, prefix="/recipes", tags=["Recipes"])
+app.include_router(favorites.router, prefix="/favorites", tags=["Favorites"])
 app.include_router(
     recommendations.router,
     prefix="/recommendations",

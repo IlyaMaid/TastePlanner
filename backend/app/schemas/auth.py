@@ -7,6 +7,17 @@ PASSWORD_LETTER_RE = re.compile(r"[A-Za-zА-Яа-яЁё]")
 PASSWORD_DIGIT_RE = re.compile(r"\d")
 
 
+def validate_password_strength(value: str) -> str:
+    password = value.strip()
+    if len(password) < 8:
+        raise ValueError("Пароль должен быть не короче 8 символов")
+    if not PASSWORD_LETTER_RE.search(password):
+        raise ValueError("Пароль должен содержать хотя бы одну букву")
+    if not PASSWORD_DIGIT_RE.search(password):
+        raise ValueError("Пароль должен содержать хотя бы одну цифру")
+    return password
+
+
 class AuthCredentialsBase(BaseModel):
     email: EmailStr
 
@@ -31,14 +42,7 @@ class UserRegister(AuthCredentialsBase):
     @field_validator("password")
     @classmethod
     def validate_password(cls, value: str) -> str:
-        password = value.strip()
-        if len(password) < 8:
-            raise ValueError("Пароль должен быть не короче 8 символов")
-        if not PASSWORD_LETTER_RE.search(password):
-            raise ValueError("Пароль должен содержать хотя бы одну букву")
-        if not PASSWORD_DIGIT_RE.search(password):
-            raise ValueError("Пароль должен содержать хотя бы одну цифру")
-        return password
+        return validate_password_strength(value)
 
 
 class UserLogin(AuthCredentialsBase):
@@ -76,3 +80,17 @@ class RefreshTokenRequest(BaseModel):
 class TokenPayload(BaseModel):
     sub: str
     type: str
+
+
+class ForgotPasswordRequest(AuthCredentialsBase):
+    pass
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    new_password: str = Field(min_length=8, max_length=128)
+
+    @field_validator("new_password")
+    @classmethod
+    def validate_new_password(cls, value: str) -> str:
+        return validate_password_strength(value)

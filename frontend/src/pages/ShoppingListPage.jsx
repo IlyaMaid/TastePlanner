@@ -168,7 +168,7 @@ export default function ShoppingListPage({ authSession, notify }) {
               type="button"
               onClick={() => loadShoppingList(days, false)}
               disabled={isLoading || isRefreshing}
-              className="rounded-2xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+              className="rounded-2xl bg-emerald-600 px-5 py-3 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {isRefreshing ? "Обновляем..." : "Сформировать заново"}
             </button>
@@ -333,7 +333,7 @@ export default function ShoppingListPage({ authSession, notify }) {
                 </div>
               ) : null}
 
-              <div className="rounded-3xl bg-slate-900 p-6 text-white shadow-sm">
+              <div className="rounded-3xl bg-emerald-950 p-6 text-white shadow-sm">
                 <h2 className="text-xl font-semibold">Действия</h2>
                 <div className="mt-4 flex flex-col gap-3">
                   <button
