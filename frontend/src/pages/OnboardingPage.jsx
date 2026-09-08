@@ -105,7 +105,7 @@ function ProductPicker({ title, description, categories, selected, onChange }) {
               onClick={() => setOpenCategory(category.id)}
               className={`shrink-0 rounded-2xl border px-4 py-3 text-left text-sm font-medium transition ${
                 openCategory === category.id
-                  ? "border-slate-900 bg-slate-900 text-white"
+                  ? "border-emerald-600 bg-emerald-600 text-white"
                   : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
               }`}
             >
@@ -177,7 +177,7 @@ function ChoiceCard({ isSelected, title, text, onClick }) {
       onClick={onClick}
       className={`rounded-3xl border p-5 text-left transition ${
         isSelected
-          ? "border-slate-900 bg-slate-900 text-white"
+          ? "border-emerald-600 bg-emerald-600 text-white"
           : "border-slate-200 bg-white text-slate-900 hover:border-slate-300 hover:bg-slate-50"
       }`}
     >
@@ -200,7 +200,7 @@ function StepButton({ step, index, isActive, isDone, onClick }) {
       onClick={onClick}
       className={`w-full rounded-2xl border px-4 py-3 text-left transition ${
         isActive
-          ? "border-slate-900 bg-slate-900 text-white"
+          ? "border-emerald-600 bg-emerald-600 text-white"
           : isDone
             ? "border-emerald-200 bg-emerald-50 text-slate-900"
             : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
@@ -602,7 +602,7 @@ export default function TastePlannerOnboardingPage({ authSession, notify }) {
                     onClick={() => handleChange("meals_per_day", String(value))}
                     className={`min-h-11 min-w-12 rounded-2xl border px-4 py-2 text-sm font-semibold transition ${
                       Number(form.meals_per_day) === value
-                        ? "border-slate-900 bg-slate-900 text-white"
+                        ? "border-emerald-600 bg-emerald-600 text-white"
                         : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
                     }`}
                   >
@@ -845,7 +845,7 @@ export default function TastePlannerOnboardingPage({ authSession, notify }) {
             </div>
 
             {selectedFoodZone ? (
-              <div className="rounded-3xl bg-slate-900 p-5 text-white shadow-sm">
+              <div className="rounded-3xl bg-emerald-950 p-5 text-white shadow-sm">
                 <h2 className="text-lg font-semibold">Региональный профиль</h2>
                 <p className="mt-3 text-sm font-medium text-emerald-200">
                   {selectedFoodZone.name}
@@ -882,7 +882,7 @@ export default function TastePlannerOnboardingPage({ authSession, notify }) {
                         type="button"
                         onClick={() => moveToStep(activeStepIndex + 1)}
                         disabled={isSaving}
-                        className="inline-flex min-h-12 items-center justify-center rounded-2xl bg-slate-900 px-6 py-3 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+                        className="inline-flex min-h-12 items-center justify-center rounded-2xl bg-emerald-600 px-6 py-3 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
                       >
                         Далее
                       </button>
@@ -890,7 +890,7 @@ export default function TastePlannerOnboardingPage({ authSession, notify }) {
                       <button
                         type="submit"
                         disabled={isSaving}
-                        className="inline-flex min-h-12 items-center justify-center rounded-2xl bg-slate-900 px-6 py-3 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+                        className="inline-flex min-h-12 items-center justify-center rounded-2xl bg-emerald-600 px-6 py-3 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
                       >
                         {isSaving ? "Сохраняем..." : "Сохранить анкету"}
                       </button>

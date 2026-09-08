@@ -4,6 +4,7 @@ import Navbar from "./components/Navbar";
 import Toast from "./components/Toast";
 import HomePage from "./pages/HomePage";
 import AuthPage from "./pages/AuthPage";
+import ResetPasswordPage from "./pages/ResetPasswordPage";
 import OnboardingPage from "./pages/OnboardingPage";
 import MealPlanPage from "./pages/MealPlanPage";
 import WeeklyMealPlanPage from "./pages/WeeklyMealPlanPage";
@@ -17,9 +18,10 @@ import {
   fetchCurrentUser,
   refreshSession,
 } from "./lib/auth";
+import { addFavorite, fetchFavorites, removeFavorite } from "./lib/favorites";
+import { formatRecipe } from "./lib/recipeFormat";
 
 const AUTH_STORAGE_KEY = "tasteplanner.auth";
-const FAVORITES_STORAGE_KEY = "favorites";
 
 function ProtectedRoute({ isAuthenticated, isAuthReady, children }) {
   if (!isAuthReady) {
@@ -54,10 +56,8 @@ export default function App() {
     }
   });
   const [isAuthReady, setIsAuthReady] = useState(false);
-  const [favorites, setFavorites] = useState(() => {
-    const savedFavorites = localStorage.getItem(FAVORITES_STORAGE_KEY);
-    return savedFavorites ? JSON.parse(savedFavorites) : [];
-  });
+  const [favorites, setFavorites] = useState([]);
+  const [isFavoritesLoading, setIsFavoritesLoading] = useState(false);
   const [toast, setToast] = useState(null);
 
   const isAuthenticated = Boolean(authSession?.accessToken);
@@ -73,8 +73,36 @@ export default function App() {
   }, [authSession]);
 
   useEffect(() => {
-    localStorage.setItem(FAVORITES_STORAGE_KEY, JSON.stringify(favorites));
-  }, [favorites]);
+    let isActive = true;
+
+    if (!accessToken) {
+      setFavorites([]);
+      return undefined;
+    }
+
+    async function loadFavorites() {
+      setIsFavoritesLoading(true);
+
+      try {
+        const data = await fetchFavorites(accessToken);
+        if (isActive) {
+          setFavorites((data.items ?? []).map(formatRecipe));
+        }
+      } catch {
+        // Favorites are non-critical; keep whatever was loaded before.
+      } finally {
+        if (isActive) {
+          setIsFavoritesLoading(false);
+        }
+      }
+    }
+
+    loadFavorites();
+
+    return () => {
+      isActive = false;
+    };
+  }, [accessToken]);
 
   useEffect(() => {
     if (!toast) {
@@ -153,18 +181,29 @@ export default function App() {
     notify({ title: "Вы вышли", message: "Сессия завершена." });
   };
 
-  const toggleFavorite = (recipe) => {
-    setFavorites((prev) => {
-      const exists = prev.some((item) => item.id === recipe.id);
+  const toggleFavorite = async (recipe) => {
+    if (!accessToken) {
+      return;
+    }
 
-      if (exists) {
+    const wasFavorite = favorites.some((item) => item.id === recipe.id);
+
+    try {
+      if (wasFavorite) {
+        await removeFavorite(accessToken, recipe.id);
+        setFavorites((prev) => prev.filter((item) => item.id !== recipe.id));
         notify({ title: "Убрано из избранного", message: recipe.title });
-        return prev.filter((item) => item.id !== recipe.id);
+      } else {
+        await addFavorite(accessToken, recipe.id);
+        setFavorites((prev) => [...prev, recipe]);
+        notify({ title: "Добавлено в избранное", message: recipe.title });
       }
-
-      notify({ title: "Добавлено в избранное", message: recipe.title });
-      return [...prev, recipe];
-    });
+    } catch (error) {
+      notify({
+        title: "Не удалось обновить избранное",
+        message: error.message || "Попробуйте еще раз.",
+      });
+    }
   };
 
   return (
@@ -195,6 +234,11 @@ export default function App() {
                 <AuthPage onAuthSuccess={handleAuthSuccess} />
               )
             }
+          />
+
+          <Route
+            path="/reset-password"
+            element={<ResetPasswordPage notify={notify} />}
           />
 
           <Route
@@ -284,6 +328,7 @@ export default function App() {
                 <FavoritesPage
                   favorites={favorites}
                   toggleFavorite={toggleFavorite}
+                  isLoading={isFavoritesLoading}
                 />
               </ProtectedRoute>
             }

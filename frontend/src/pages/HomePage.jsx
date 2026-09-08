@@ -80,7 +80,7 @@ function PublicHome() {
           <div className="mt-8 flex flex-wrap gap-4">
             <Link
               to="/onboarding"
-              className="rounded-2xl bg-slate-900 px-6 py-3 text-sm font-semibold text-white transition hover:opacity-90"
+              className="rounded-2xl bg-emerald-600 px-6 py-3 text-sm font-semibold text-white transition hover:opacity-90"
             >
               Начать подбор рациона
             </Link>
@@ -252,7 +252,7 @@ export default function HomePage({
 
             <Link
               to="/meal-plan/week"
-              className="inline-flex min-h-11 items-center justify-center rounded-2xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white transition hover:opacity-90"
+              className="inline-flex min-h-11 items-center justify-center rounded-2xl bg-emerald-600 px-5 py-3 text-sm font-semibold text-white transition hover:opacity-90"
             >
               План на неделю
             </Link>
@@ -409,7 +409,7 @@ export default function HomePage({
               </section>
 
               <aside className="space-y-6">
-                <div className="rounded-3xl bg-slate-900 p-6 text-white shadow-sm">
+                <div className="rounded-3xl bg-emerald-950 p-6 text-white shadow-sm">
                   <h2 className="text-xl font-semibold">Быстрые действия</h2>
                   <div className="mt-5 grid gap-3">
                     <QuickLink

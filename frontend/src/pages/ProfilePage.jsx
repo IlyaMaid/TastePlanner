@@ -15,12 +15,12 @@ function InfoCard({ label, value }) {
 }
 
 function formatList(value) {
-  return Array.isArray(value) && value.length > 0 ? value.join(", ") : "Не выбрано";
+  return Array.isArray(value) && value.length > 0 ? value.join(", ") : null;
 }
 
 function formatCurrency(value, period) {
   if (value == null) {
-    return "Не указан";
+    return null;
   }
 
   return `${Number(value).toLocaleString("ru-RU", {
@@ -136,6 +136,46 @@ export default function ProfilePage({ authSession }) {
   ];
   const foodZone = getFoodZoneByRegion(profile?.region_code);
 
+  const infoFields = [
+    { label: "Пол", value: profile?.sex ? formatSex(profile.sex) : null },
+    { label: "Возраст", value: profile?.age ?? null },
+    {
+      label: "Рост",
+      value: profile?.height_cm ? `${profile.height_cm} см` : null,
+    },
+    {
+      label: "Вес",
+      value: profile?.weight_kg ? `${profile.weight_kg} кг` : null,
+    },
+    { label: "Цель питания", value: profile?.goal ? formatGoal(profile.goal) : null },
+    {
+      label: "Уровень активности",
+      value: profile?.activity_level ? formatActivity(profile.activity_level) : null,
+    },
+    { label: "Приемов пищи в день", value: profile?.meals_per_day ?? null },
+    {
+      label: "Бюджет на день",
+      value: formatCurrency(profile?.daily_budget_rub, "в день"),
+    },
+    {
+      label: "Бюджет на неделю",
+      value: formatCurrency(profile?.weekly_budget_rub, "в неделю"),
+    },
+    { label: "Регион", value: profile?.region_code ? formatRegion(profile.region_code) : null },
+    { label: "Пищевая зона", value: foodZone?.name ?? null },
+    {
+      label: "Типичные продукты",
+      value: foodZone?.products?.length ? foodZone.products.join(", ") : null,
+    },
+    { label: "Любимые продукты", value: formatList(profile?.favorite_products_json) },
+    { label: "Нелюбимые продукты", value: formatList(profile?.disliked_products_json) },
+    { label: "Аллергии", value: formatList(profile?.allergies_json) },
+  ];
+  const filledFields = infoFields.filter(
+    (field) => field.value != null && field.value !== "",
+  );
+  const missingFieldsCount = infoFields.length - filledFields.length;
+
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900">
       <div className="mx-auto max-w-6xl px-6 py-10">
@@ -162,7 +202,7 @@ export default function ProfilePage({ authSession }) {
             </Link>
             <Link
               to="/meal-plan"
-              className="rounded-2xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white transition hover:opacity-90"
+              className="rounded-2xl bg-emerald-600 px-5 py-3 text-sm font-semibold text-white transition hover:opacity-90"
             >
               Открыть план питания
             </Link>
@@ -195,70 +235,33 @@ export default function ProfilePage({ authSession }) {
 
               {isLoading ? (
                 <p className="mt-5 text-sm text-slate-500">Загружаем профиль...</p>
-              ) : (
-                <div className="mt-5 grid gap-4 sm:grid-cols-2">
-                  <InfoCard label="Пол" value={formatSex(profile?.sex)} />
-                  <InfoCard
-                    label="Возраст"
-                    value={profile?.age ?? "Не указан"}
-                  />
-                  <InfoCard
-                    label="Рост"
-                    value={
-                      profile?.height_cm ? `${profile.height_cm} см` : "Не указан"
-                    }
-                  />
-                  <InfoCard
-                    label="Вес"
-                    value={
-                      profile?.weight_kg ? `${profile.weight_kg} кг` : "Не указан"
-                    }
-                  />
-                  <InfoCard
-                    label="Цель питания"
-                    value={formatGoal(profile?.goal)}
-                  />
-                  <InfoCard
-                    label="Уровень активности"
-                    value={formatActivity(profile?.activity_level)}
-                  />
-                  <InfoCard
-                    label="Приемов пищи в день"
-                    value={profile?.meals_per_day ?? "Не указано"}
-                  />
-                  <InfoCard
-                    label="Бюджет на день"
-                    value={formatCurrency(profile?.daily_budget_rub, "в день")}
-                  />
-                  <InfoCard
-                    label="Бюджет на неделю"
-                    value={formatCurrency(profile?.weekly_budget_rub, "в неделю")}
-                  />
-                  <InfoCard
-                    label="Регион"
-                    value={formatRegion(profile?.region_code)}
-                  />
-                  <InfoCard
-                    label="Пищевая зона"
-                    value={foodZone?.name ?? "Не выбрана"}
-                  />
-                  <InfoCard
-                    label="Типичные продукты"
-                    value={foodZone?.products.join(", ") ?? "Нет данных"}
-                  />
-                  <InfoCard
-                    label="Любимые продукты"
-                    value={formatList(profile?.favorite_products_json)}
-                  />
-                  <InfoCard
-                    label="Нелюбимые продукты"
-                    value={formatList(profile?.disliked_products_json)}
-                  />
-                  <InfoCard
-                    label="Аллергии"
-                    value={formatList(profile?.allergies_json)}
-                  />
+              ) : filledFields.length === 0 ? (
+                <div className="mt-5 rounded-2xl bg-slate-50 p-5 text-sm leading-6 text-slate-600">
+                  Анкета пока пустая.{" "}
+                  <Link to="/onboarding" className="font-semibold text-emerald-700 hover:underline">
+                    Заполните её
+                  </Link>
+                  , чтобы рекомендации учитывали ваши предпочтения.
                 </div>
+              ) : (
+                <>
+                  <div className="mt-5 grid gap-4 sm:grid-cols-2">
+                    {filledFields.map((field) => (
+                      <InfoCard key={field.label} label={field.label} value={field.value} />
+                    ))}
+                  </div>
+
+                  {missingFieldsCount > 0 ? (
+                    <p className="mt-4 text-sm text-slate-500">
+                      Заполнено не всё: осталось {missingFieldsCount}{" "}
+                      {missingFieldsCount === 1 ? "поле" : "полей"}.{" "}
+                      <Link to="/onboarding" className="font-semibold text-emerald-700 hover:underline">
+                        Дополнить анкету
+                      </Link>
+                      .
+                    </p>
+                  ) : null}
+                </>
               )}
             </div>
           </section>
@@ -340,7 +343,7 @@ export default function ProfilePage({ authSession }) {
               </div>
             ) : null}
 
-            <div className="rounded-3xl bg-slate-900 p-6 text-white shadow-sm">
+            <div className="rounded-3xl bg-emerald-950 p-6 text-white shadow-sm">
               <h2 className="text-xl font-semibold">Быстрые действия</h2>
 
               <div className="mt-4 flex flex-col gap-3">

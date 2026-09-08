@@ -1,6 +1,7 @@
+import { PageSkeleton } from "../components/Skeleton";
 import RecipeCard from "../components/RecipeCard";
 
-export default function FavoritesPage({ favorites, toggleFavorite }) {
+export default function FavoritesPage({ favorites, toggleFavorite, isLoading }) {
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900">
       <div className="mx-auto max-w-6xl px-6 py-10">
@@ -17,7 +18,9 @@ export default function FavoritesPage({ favorites, toggleFavorite }) {
           </p>
         </div>
 
-        {favorites.length === 0 ? (
+        {isLoading ? (
+          <PageSkeleton rows={2} />
+        ) : favorites.length === 0 ? (
           <div className="rounded-3xl bg-white p-10 text-center shadow-sm ring-1 ring-slate-200">
             <h2 className="text-2xl font-semibold">Пока ничего нет</h2>
             <p className="mt-3 text-slate-600">

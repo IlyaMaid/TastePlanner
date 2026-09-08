@@ -234,7 +234,7 @@ export default function MealPlanPage({ authSession, notify }) {
           <div className="flex flex-wrap gap-3">
             <Link
               to="/meal-plan/week"
-              className="inline-flex min-h-11 items-center justify-center rounded-2xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white transition hover:opacity-90"
+              className="inline-flex min-h-11 items-center justify-center rounded-2xl bg-emerald-600 px-5 py-3 text-sm font-semibold text-white transition hover:opacity-90"
             >
               План на неделю
             </Link>
@@ -466,7 +466,7 @@ export default function MealPlanPage({ authSession, notify }) {
                 </div>
               ) : null}
 
-              <div className="rounded-3xl bg-slate-900 p-6 text-white shadow-sm">
+              <div className="rounded-3xl bg-emerald-950 p-6 text-white shadow-sm">
                 <h2 className="text-xl font-semibold">Настройки рациона</h2>
                 <div className="mt-4 space-y-3 text-sm text-slate-200">
                   <div className="rounded-2xl bg-white/10 p-4">

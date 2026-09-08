@@ -117,6 +117,54 @@ export function refreshSession(refreshToken) {
   });
 }
 
+export function forgotPasswordRequest(email) {
+  return requestJson("/auth/forgot-password", {
+    method: "POST",
+    body: JSON.stringify({ email }),
+  });
+}
+
+export function resetPasswordRequest({ token, newPassword }) {
+  return requestJson("/auth/reset-password", {
+    method: "POST",
+    body: JSON.stringify({ token, new_password: newPassword }),
+  });
+}
+
+export function validateForgotPasswordForm(form) {
+  const errors = {};
+
+  if (!form.email.trim()) {
+    errors.email = "Введите email";
+  }
+
+  return errors;
+}
+
+export function validateResetPasswordForm(form) {
+  const errors = {};
+  const password = form.password.trim();
+
+  if (password.length < 8) {
+    errors.password = "Пароль должен быть не короче 8 символов";
+  } else {
+    if (!/[A-Za-zА-Яа-я]/.test(password)) {
+      errors.password = "Пароль должен содержать хотя бы одну букву";
+    }
+    if (!/\d/.test(password)) {
+      errors.password = "Пароль должен содержать хотя бы одну цифру";
+    }
+  }
+
+  if (!form.confirmPassword.trim()) {
+    errors.confirmPassword = "Повторите пароль";
+  } else if (form.password !== form.confirmPassword) {
+    errors.confirmPassword = "Пароли не совпадают";
+  }
+
+  return errors;
+}
+
 export function fetchCurrentUser(accessToken) {
   return requestJson("/users/me", {
     headers: {

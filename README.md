@@ -52,11 +52,17 @@ Copy-Item backend\.env.example backend\.env
 Затем отредактируйте `backend\.env`:
 
 ```env
+DEBUG=true
 DATABASE_URL=postgresql://postgres:postgres@localhost:5432/tasteplanner
 SECRET_KEY=replace-with-a-long-random-secret
 ALGORITHM=HS256
 ACCESS_TOKEN_EXPIRE_MINUTES=30
+FRONTEND_BASE_URL=http://localhost:5173
 ```
+
+`DEBUG` по умолчанию `false` (безопасно для продакшна) — для локальной разработки держите `DEBUG=true`.
+
+Восстановление пароля (`/auth/forgot-password`) отправляет письмо со ссылкой сброса через SMTP. Если переменные `SMTP_HOST` и т.д. не заданы, ссылка вместо отправки просто пишется в лог backend (уровень WARNING) — этого достаточно для локальной разработки. Для реальной отправки писем заполните `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`, `SMTP_USE_TLS` в `.env` (см. `backend/.env.example`).
 
 Frontend может запускаться без env-файла: по умолчанию он обращается к `http://localhost:8000`. Если нужно указать другой адрес API, создайте `frontend/.env`:
 
@@ -81,6 +87,15 @@ py -3.11 -m venv .venv
 ```
 
 Создайте базу PostgreSQL `tasteplanner`, затем примените SQL-файлы из `postgress/` под нужное состояние схемы. Приложению нужны таблицы пользователей, профилей, рецептов, ингредиентов, ограничений, сезонности, регионов, логов рекомендаций и сигналов обратной связи для обучения.
+
+Начиная с этой версии, новые изменения схемы (например, избранные рецепты, восстановление пароля) применяются через Alembic, а не файлы в `postgress/`. После применения SQL-файлов из `postgress/` накатите Alembic-миграции:
+
+```powershell
+cd D:\TastePlanner\backend
+..\.venv\Scripts\python.exe -m alembic upgrade head
+```
+
+Таблицы, которыми управляет `postgress/*.sql` (recipes, ingredients и т.д.), Alembic не трогает — `alembic/env.py` явно исключает их из автогенерации, чтобы не предлагать их удаление или изменение.
 
 Запускайте backend из папки `backend`, чтобы `.env` корректно подхватился:
 
